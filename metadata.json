@@ -1,0 +1,7 @@
+{
+  "name": "Meccha Chameleon - 3D Paint & Camouflage Hide-and-Seek",
+  "description": "3D Paint & Camouflage stealth game inspired by Meccha Chameleon. Blend into walls and museum exhibits, freeze as statues, and outsmart patrolling AI seekers.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
