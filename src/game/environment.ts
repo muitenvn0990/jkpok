@@ -37,19 +37,19 @@ export class ArtGalleryEnvironment {
   }
 
   private buildGallery() {
-    // 1. Hardwood Parquet Floor
+    // 1. Hardwood Parquet Floor with rich 3D specular shine
     const floorGeo = new THREE.PlaneGeometry(44, 44);
     floorGeo.rotateX(-Math.PI / 2);
     const floorMat = new THREE.MeshStandardMaterial({
       map: createParquetFloorTexture(),
-      roughness: 0.45,
-      metalness: 0.05,
+      roughness: 0.4,
+      metalness: 0.08,
     });
     const floor = new THREE.Mesh(floorGeo, floorMat);
     floor.receiveShadow = true;
     this.scene.add(floor);
 
-    // 2. Persian Rug
+    // 2. Persian Rug (Rich 3D detail in the center)
     const rugGeo = new THREE.PlaneGeometry(18, 24);
     rugGeo.rotateX(-Math.PI / 2);
     const rugMat = new THREE.MeshStandardMaterial({
@@ -63,11 +63,11 @@ export class ArtGalleryEnvironment {
     this.scene.add(rug);
     this.interactiveMeshes.push(rug);
 
-    // 3. Perimeter Walls
+    // 3. Perimeter 3D Walls with deep gallery slate tone
     const wallH = 6.5;
     const roomSize = 40;
     const wallMat = new THREE.MeshStandardMaterial({
-      color: 0x1e293b, // Deep gallery slate
+      color: 0x1e293b,
       roughness: 0.85,
       metalness: 0.05,
     });
@@ -87,7 +87,7 @@ export class ArtGalleryEnvironment {
       this.interactiveMeshes.push(wallMesh);
     });
 
-    // 4. Wooden Wainscoting
+    // 4. Wooden Wainscoting (Skirting boards)
     const baseboardMat = new THREE.MeshStandardMaterial({ color: 0x3e2723, roughness: 0.6 });
     const baseboards = [
       { size: [roomSize, 1.4, 0.4], pos: [0, 0.7, -roomSize / 2 + 0.5] },
@@ -110,6 +110,9 @@ export class ArtGalleryEnvironment {
 
     // 7. Leather Viewing Benches
     this.buildViewingBenches();
+
+    // 8. 3D Potted Plants (Chậu Cây 3D)
+    this.buildPottedPlants();
 
     // Update entire scene matrix world once
     this.scene.updateMatrixWorld(true);
@@ -151,28 +154,26 @@ export class ArtGalleryEnvironment {
         info: MASTERPIECES[4], // The Kiss (South Wall)
         pos: new THREE.Vector3(0, 3.4, 19.2),
         rotY: Math.PI,
-        scale: [4.6, 5.6, 0.3],
+        scale: [4.8, 5.2, 0.3],
       },
     ];
 
     displays.forEach(d => {
-      const group = new THREE.Group();
-      group.position.copy(d.pos);
-      group.rotation.y = d.rotY;
-
-      // Ornate frame
+      // 3D Frame
       const frame = new THREE.Mesh(
         new THREE.BoxGeometry(d.scale[0] + 0.6, d.scale[1] + 0.6, d.scale[2]),
         frameMat
       );
+      frame.position.copy(d.pos);
+      frame.rotation.y = d.rotY;
       frame.castShadow = true;
-      group.add(frame);
+      this.scene.add(frame);
 
-      // Painting canvas
-      const paintingTex = getPaintingTexture(d.info.id);
+      // 3D Canvas
+      const canvasTex = getPaintingTexture(d.info.id);
       const canvasMat = new THREE.MeshStandardMaterial({
-        map: paintingTex,
-        roughness: 0.65,
+        map: canvasTex,
+        roughness: 0.5,
         metalness: 0.05,
       });
 
@@ -180,17 +181,25 @@ export class ArtGalleryEnvironment {
         new THREE.BoxGeometry(d.scale[0], d.scale[1], d.scale[2] + 0.04),
         canvasMat
       );
+      canvasMesh.position.copy(d.pos);
+      canvasMesh.rotation.y = d.rotY;
       canvasMesh.castShadow = true;
-      canvasMesh.receiveShadow = true;
-      group.add(canvasMesh);
+      this.scene.add(canvasMesh);
 
-      // Dedicated gallery spotlight
-      const spot = new THREE.SpotLight(0xfffbeb, 12, 10, Math.PI / 4, 0.4, 1.2);
-      spot.position.set(0, 3.2, 2.5);
-      spot.target = canvasMesh;
-      group.add(spot);
+      // Dedicated 3D Spotlight casting down on the painting
+      const spot = new THREE.SpotLight(0xfff7ed, 4.5, 12, Math.PI / 5, 0.4);
+      const spotTarget = new THREE.Object3D();
+      spotTarget.position.copy(d.pos);
+      this.scene.add(spotTarget);
 
-      this.scene.add(group);
+      const offsetDist = 3.5;
+      spot.position.set(
+        d.pos.x + Math.sin(d.rotY) * offsetDist,
+        5.8,
+        d.pos.z + Math.cos(d.rotY) * offsetDist
+      );
+      spot.target = spotTarget;
+      this.scene.add(spot);
 
       this.exhibits.push({
         id: d.info.id,
@@ -265,6 +274,51 @@ export class ArtGalleryEnvironment {
       this.scene.add(cushion);
 
       this.interactiveMeshes.push(cushion);
+    });
+  }
+
+  private buildPottedPlants() {
+    const potMat = new THREE.MeshStandardMaterial({ color: 0xb45309, roughness: 0.7 });
+    const leafMat = new THREE.MeshStandardMaterial({ color: 0x15803d, roughness: 0.5 });
+    const lightLeafMat = new THREE.MeshStandardMaterial({ color: 0x22c55e, roughness: 0.45 });
+
+    const corners = [
+      new THREE.Vector3(-17, 0, -17),
+      new THREE.Vector3(17, 0, -17),
+      new THREE.Vector3(-17, 0, 17),
+      new THREE.Vector3(17, 0, 17),
+    ];
+
+    corners.forEach((c, idx) => {
+      // Pot
+      const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.4, 0.9, 16), potMat);
+      pot.position.set(c.x, 0.45, c.z);
+      pot.castShadow = true;
+      this.scene.add(pot);
+
+      // Lush 3D Foliage
+      const mainBush = new THREE.Mesh(new THREE.SphereGeometry(0.7, 16, 16), leafMat);
+      mainBush.position.set(c.x, 1.3, c.z);
+      mainBush.castShadow = true;
+      this.scene.add(mainBush);
+
+      const topBush = new THREE.Mesh(new THREE.SphereGeometry(0.5, 16, 16), lightLeafMat);
+      topBush.position.set(c.x, 1.8, c.z);
+      topBush.castShadow = true;
+      this.scene.add(topBush);
+
+      this.exhibits.push({
+        id: `plant_${idx}`,
+        name: 'Chậu Cây Cảnh Bảo Tàng',
+        nameVi: 'Chậu Cây Cảnh Bảo Tàng',
+        artist: 'Thực vật trang trí',
+        dominantColors: ['#15803d', '#22c55e', '#b45309'],
+        mesh: mainBush,
+        worldPosition: new THREE.Vector3(c.x, 1.3, c.z),
+      });
+
+      this.interactiveMeshes.push(mainBush);
+      this.interactiveMeshes.push(pot);
     });
   }
 

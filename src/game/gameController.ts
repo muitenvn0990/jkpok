@@ -3,6 +3,7 @@ import { BodyPart, GameStats, GameStatus, PoseType } from '../types/game';
 import { soundEngine } from './audio';
 import { ArtGalleryEnvironment, MuseumExhibit } from './environment';
 import { PaintTool, PlayerCharacter } from './player';
+import { SeekerHunter } from './seeker';
 import { WhistleEngine } from './whistleEngine';
 import { MultiplayerClient, RoomPlayer } from '../network/multiplayerClient';
 
@@ -33,6 +34,9 @@ export class GameController {
   public whistleEngine: WhistleEngine;
   public networkClient: MultiplayerClient | null = null;
 
+  // 3D AI Seekers patrolling the museum
+  public aiSeekers: SeekerHunter[] = [];
+
   // Remote players
   public remotePlayers: Map<string, PlayerCharacter> = new Map();
 
@@ -53,11 +57,11 @@ export class GameController {
   public brushSize: number = 18;
   public isPaintingOnCharacter: boolean = false;
 
-  // Camera System
+  // Full 3D Camera System (rich isometric 3D third-person perspective)
   public isPaintFocus: boolean = false;
-  public cameraAngleH: number = 0;
-  public cameraAngleV: number = 0.32;
-  public cameraDistance: number = 5.2;
+  public cameraAngleH: number = 0.58; // 33 degrees angle for full 3D room depth
+  public cameraAngleV: number = 0.44; // elevated 3D perspective
+  public cameraDistance: number = 6.6;
   private targetCameraPos: THREE.Vector3 = new THREE.Vector3();
   private targetLookAt: THREE.Vector3 = new THREE.Vector3();
 
@@ -78,7 +82,7 @@ export class GameController {
     // 1. Scene & Renderer
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x0a0f1d);
-    this.scene.fog = new THREE.FogExp2(0x0a0f1d, 0.02);
+    this.scene.fog = new THREE.FogExp2(0x0a0f1d, 0.018);
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.setSize(container.clientWidth, container.clientHeight);
@@ -89,28 +93,31 @@ export class GameController {
     this.renderer.toneMappingExposure = 1.15;
     container.appendChild(this.renderer.domElement);
 
-    // 2. Camera
-    this.camera = new THREE.PerspectiveCamera(50, container.clientWidth / container.clientHeight, 0.1, 100);
+    // 2. Camera (Perspective 3D)
+    this.camera = new THREE.PerspectiveCamera(52, container.clientWidth / container.clientHeight, 0.1, 120);
 
-    // 3. Lighting
+    // 3. 3D Museum Lighting
     this.setupLighting();
 
-    // 4. Museum Environment with Masterpieces
+    // 4. Museum 3D Environment with Masterpieces, Statues, Plants & Benches
     this.environment = new ArtGalleryEnvironment();
     this.scene.add(this.environment.scene);
 
-    // 5. Local Player Mannequin (100% Rounded organic figure, no cubes!)
+    // 5. Local Player Mannequin (100% Rounded organic 3D figure)
     this.player = new PlayerCharacter('local', 'Họa Sĩ Trốn');
     this.scene.add(this.player.group);
     this.player.position.set(0, 0, 0);
 
-    // 6. Whistle Engine
+    // 6. Spawn 2 Patrolling 3D AI Seekers
+    this.initAISeekers();
+
+    // 7. Whistle Engine
     this.whistleEngine = new WhistleEngine(this.scene, 22);
 
-    // 7. Event listeners
+    // 8. Event listeners
     this.bindEvents();
 
-    // 8. Start loop
+    // 9. Start loop
     this.animate();
   }
 
@@ -118,25 +125,61 @@ export class GameController {
     const ambient = new THREE.AmbientLight(0xfff7ed, 0.95);
     this.scene.add(ambient);
 
-    const mainLight = new THREE.DirectionalLight(0xffedd5, 1.35);
-    mainLight.position.set(10, 16, 8);
+    const mainLight = new THREE.DirectionalLight(0xffedd5, 1.4);
+    mainLight.position.set(12, 18, 10);
     mainLight.castShadow = true;
     mainLight.shadow.mapSize.width = 1024;
     mainLight.shadow.mapSize.height = 1024;
     mainLight.shadow.bias = -0.0008;
     this.scene.add(mainLight);
 
-    const fillLight = new THREE.DirectionalLight(0x93c5fd, 0.45);
-    fillLight.position.set(-12, 10, -12);
+    const fillLight = new THREE.DirectionalLight(0x93c5fd, 0.5);
+    fillLight.position.set(-14, 12, -12);
     this.scene.add(fillLight);
+  }
+
+  private initAISeekers() {
+    // Seeker Hunter 1: Patrols North & East wings
+    const seeker1 = new SeekerHunter(
+      1,
+      new THREE.Vector3(-10, 0, -12),
+      [
+        new THREE.Vector3(-12, 0, -12),
+        new THREE.Vector3(12, 0, -12),
+        new THREE.Vector3(12, 0, 2),
+        new THREE.Vector3(-12, 0, 2),
+      ],
+      1.0
+    );
+    this.scene.add(seeker1.group);
+    this.aiSeekers.push(seeker1);
+
+    // Seeker Hunter 2: Patrols South & West wings
+    const seeker2 = new SeekerHunter(
+      2,
+      new THREE.Vector3(10, 0, 12),
+      [
+        new THREE.Vector3(12, 0, 12),
+        new THREE.Vector3(-12, 0, 12),
+        new THREE.Vector3(-12, 0, -2),
+        new THREE.Vector3(12, 0, -2),
+      ],
+      1.1
+    );
+    this.scene.add(seeker2.group);
+    this.aiSeekers.push(seeker2);
   }
 
   public initNetwork(client: MultiplayerClient) {
     this.networkClient = client;
   }
 
+  public playerJump() {
+    this.player.jump();
+  }
+
   /**
-   * Toggle Paint Focus (Camera zooms in close to mannequin, allowing 360 deg painting)
+   * Toggle Paint Focus (Camera smoothly orbits in 3D closer to mannequin for 360 painting)
    */
   public togglePaintFocus(): boolean {
     this.isPaintFocus = !this.isPaintFocus;
@@ -148,18 +191,18 @@ export class GameController {
    */
   public zoomCamera(delta: number) {
     if (this.isPaintFocus) {
-      this.cameraDistance = Math.max(1.6, Math.min(3.6, this.cameraDistance + delta));
+      this.cameraDistance = Math.max(2.0, Math.min(4.5, this.cameraDistance + delta));
     } else {
-      this.cameraDistance = Math.max(2.8, Math.min(10.0, this.cameraDistance + delta));
+      this.cameraDistance = Math.max(3.2, Math.min(12.0, this.cameraDistance + delta));
     }
   }
 
   /**
-   * Rotate camera horizontally / vertically
+   * Rotate camera horizontally / vertically in full 3D space
    */
   public rotateCamera(deltaH: number, deltaV: number = 0) {
     this.cameraAngleH -= deltaH;
-    this.cameraAngleV = Math.max(0.04, Math.min(1.28, this.cameraAngleV + deltaV));
+    this.cameraAngleV = Math.max(0.08, Math.min(1.35, this.cameraAngleV + deltaV));
   }
 
   /**
@@ -186,7 +229,7 @@ export class GameController {
   }
 
   /**
-   * Find closest exhibit to calculate camouflage
+   * Find closest exhibit to calculate camouflage match
    */
   public getClosestExhibit(): MuseumExhibit | null {
     let closest: MuseumExhibit | null = null;
@@ -311,8 +354,8 @@ export class GameController {
 
   /**
    * EXACT 3D DIRECT PAINTING:
-   * Raycasts precisely against the player's rounded body meshes.
-   * If hit, paints at THAT exact UV coordinate on that specific mesh!
+   * Raycasts precisely against the player's 3D body meshes.
+   * If hit, paints at that exact UV on that specific mesh!
    */
   public handle3DDirectPaint(clientX: number, clientY: number): boolean {
     const rect = this.renderer.domElement.getBoundingClientRect();
@@ -352,12 +395,10 @@ export class GameController {
           soundEngine.playSample();
           this.callbacks.onEyedropperSampled(this.activeColor, exhibit.nameVi);
         } else {
-          // If clicked a general surface, pick a default museum tone
           this.activeColor = '#d97706';
           soundEngine.playSample();
           this.callbacks.onEyedropperSampled(this.activeColor, 'Bức tường bảo tàng');
         }
-        // Switch back to brush after sampling
         this.activeTool = 'brush';
         return true;
       }
@@ -377,22 +418,8 @@ export class GameController {
       }
     }
 
-    // Whistle in Seek phase
-    if (this.currentPhase === 'seek' && this.player.isAlive && this.currentRole === 'hider') {
-      this.whistleEngine.update(delta, this.player.position, [], () => {
-        if (this.networkClient) {
-          this.networkClient.sendWhistle([this.player.position.x, this.player.position.y, this.player.position.z]);
-        }
-        this.callbacks.onWhistleAlert();
-      });
-
-      this.callbacks.onWhistleTimeUpdate(
-        this.whistleEngine.getTimeRemaining(),
-        this.whistleEngine.getProgress()
-      );
-    }
-
     // Camouflage match calculation
+    let currentMatch = 50;
     const closestExhibit = this.getClosestExhibit();
     if (closestExhibit) {
       const dist = new THREE.Vector2(
@@ -405,17 +432,56 @@ export class GameController {
       if (dist < 4.2) match += 15;
       if (this.player.isMoving) match = 15;
 
-      this.callbacks.onBackdropDetected(closestExhibit.nameVi, Math.min(100, match));
+      currentMatch = Math.min(100, match);
+      this.callbacks.onBackdropDetected(closestExhibit.nameVi, currentMatch);
+    }
+
+    // Whistle in Seek phase: alert seekers
+    if (this.currentPhase === 'seek' && this.player.isAlive && this.currentRole === 'hider') {
+      this.whistleEngine.update(delta, this.player.position, this.aiSeekers, () => {
+        // Alert AI Seekers of whistle position
+        this.aiSeekers.forEach(s => s.onHearWhistle(this.player.position));
+
+        if (this.networkClient) {
+          this.networkClient.sendWhistle([this.player.position.x, this.player.position.y, this.player.position.z]);
+        }
+        this.callbacks.onWhistleAlert();
+      });
+
+      this.callbacks.onWhistleTimeUpdate(
+        this.whistleEngine.getTimeRemaining(),
+        this.whistleEngine.getProgress()
+      );
+    }
+
+    // Update Patrolling AI Seekers
+    if (this.currentRole === 'hider' && this.player.isAlive) {
+      this.aiSeekers.forEach(seeker => {
+        seeker.update(
+          delta,
+          this.player.position,
+          this.player.isFrozen,
+          currentMatch,
+          [],
+          () => {
+            // Player caught by AI Hunter
+            this.callbacks.onPlayerCaught('Bạn', true);
+          },
+          () => {
+            soundEngine.playAlert();
+          }
+        );
+      });
     }
 
     // Update movement & remote animations
     this.updatePlayerMovement(delta);
     this.remotePlayers.forEach(peer => peer.update(delta));
 
-    // Smooth camera tracking
+    // Smooth 3D camera tracking
     this.updateCamera(delta);
 
-    // Render
+    // Render 3D Scene
     this.renderer.render(this.scene, this.camera);
   };
 
@@ -435,7 +501,7 @@ export class GameController {
 
     const moveInput = new THREE.Vector3();
 
-    // WASD and Arrow Keys (support both code and key)
+    // WASD and Arrow Keys
     if (this.keys['KeyW'] || this.keys['ArrowUp'] || this.keys['w'] || this.keys['W']) moveInput.z -= 1;
     if (this.keys['KeyS'] || this.keys['ArrowDown'] || this.keys['s'] || this.keys['S']) moveInput.z += 1;
     if (this.keys['KeyA'] || this.keys['ArrowLeft'] || this.keys['a'] || this.keys['A']) moveInput.x -= 1;
@@ -461,7 +527,7 @@ export class GameController {
         .addScaledVector(camForward, -moveInput.z)
         .normalize();
 
-      const speed = this.keys['ShiftLeft'] || this.keys['ShiftRight'] ? 5.5 : 3.8;
+      const speed = this.keys['ShiftLeft'] || this.keys['ShiftRight'] ? 5.6 : 3.9;
       const stepX = worldMoveDir.x * speed * delta;
       const stepZ = worldMoveDir.z * speed * delta;
 
@@ -499,20 +565,20 @@ export class GameController {
   }
 
   /**
-   * Smooth orbital camera with lerp damping
+   * Smooth orbital camera with 3D depth and damping
    */
   private updateCamera(delta: number) {
     if (this.currentRole === 'seeker') {
       const target = this.player.position.clone().add(new THREE.Vector3(0, 1.6, 0));
-      const x = target.x + 3.0 * Math.sin(this.cameraAngleH) * Math.cos(this.cameraAngleV);
-      const y = target.y + 3.0 * Math.sin(this.cameraAngleV);
-      const z = target.z + 3.0 * Math.cos(this.cameraAngleH) * Math.cos(this.cameraAngleV);
+      const x = target.x + 3.2 * Math.sin(this.cameraAngleH) * Math.cos(this.cameraAngleV);
+      const y = target.y + 3.2 * Math.sin(this.cameraAngleV);
+      const z = target.z + 3.2 * Math.cos(this.cameraAngleH) * Math.cos(this.cameraAngleV);
       this.camera.position.lerp(new THREE.Vector3(x, y, z), delta * 12);
       this.camera.lookAt(target);
     } else {
-      // If Paint Focus is active, zoom in close to chest/torso
-      const lookY = this.isPaintFocus ? 1.05 : 1.15;
-      const targetDist = this.isPaintFocus ? 2.4 : this.cameraDistance;
+      // In Paint Mode, camera orbits closer at 3.0m in 3D
+      const lookY = this.isPaintFocus ? 1.05 : 1.2;
+      const targetDist = this.isPaintFocus ? 3.0 : this.cameraDistance;
 
       const target = this.player.position.clone().add(new THREE.Vector3(0, lookY, 0));
       const x = target.x + targetDist * Math.sin(this.cameraAngleH) * Math.cos(this.cameraAngleV);
@@ -547,10 +613,13 @@ export class GameController {
       e.preventDefault();
       if (this.currentRole === 'seeker') {
         this.attemptTagHider();
+      } else if (this.player.isFrozen) {
+        // If frozen, space unfreezes
+        this.player.setFreeze(false);
+        soundEngine.playFreeze(false);
       } else {
-        const next = !this.player.isFrozen;
-        this.player.setFreeze(next);
-        soundEngine.playFreeze(next);
+        // If not frozen, space makes player JUMP in 3D!
+        this.player.jump();
       }
     }
   };
@@ -566,7 +635,7 @@ export class GameController {
   };
 
   private handlePointerDown = (e: PointerEvent) => {
-    // 1. Try to paint directly on the character!
+    // 1. Try to paint directly on the 3D character!
     const hitCharacter = this.handle3DDirectPaint(e.clientX, e.clientY);
     if (hitCharacter) {
       this.isPaintingOnCharacter = true;
@@ -580,7 +649,7 @@ export class GameController {
       return;
     }
 
-    // 3. Otherwise: Orbit Camera
+    // 3. Otherwise: Orbit 3D Camera around character
     this.isCameraDragging = true;
     this.lastPointerX = e.clientX;
     this.lastPointerY = e.clientY;

@@ -42,6 +42,7 @@ export class PlayerCharacter {
   public isMoving: boolean = false;
   public isFrozen: boolean = false;
   public isAlive: boolean = true;
+  public isJumping: boolean = false;
   public currentPose: PoseType = 'standing';
 
   // Animation
@@ -590,7 +591,26 @@ export class PlayerCharacter {
     this.mannequinRoot.position.set(0, 0, 0);
   }
 
+  public jump() {
+    if (!this.isFrozen && !this.isJumping && this.position.y <= 0.05) {
+      this.velocity.y = 5.6;
+      this.isJumping = true;
+      soundEngine.playStep();
+    }
+  }
+
   public update(delta: number) {
+    // 3D vertical gravity & jump handling
+    if (this.isJumping || this.position.y > 0) {
+      this.velocity.y -= 18.0 * delta;
+      this.position.y += this.velocity.y * delta;
+      if (this.position.y <= 0) {
+        this.position.y = 0;
+        this.velocity.y = 0;
+        this.isJumping = false;
+      }
+    }
+
     if (this.isFrozen) {
       const mat = this.freezeRingMesh.material as THREE.MeshBasicMaterial;
       mat.opacity = 0.55 + Math.sin(Date.now() * 0.005) * 0.2;

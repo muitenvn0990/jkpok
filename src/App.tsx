@@ -347,6 +347,12 @@ export default function App() {
     }
   };
 
+  const handlePlayerJump = () => {
+    if (controllerRef.current) {
+      controllerRef.current.playerJump();
+    }
+  };
+
   const handleZoomCamera = (delta: number) => {
     if (controllerRef.current) {
       controllerRef.current.zoomCamera(delta);
@@ -437,9 +443,10 @@ export default function App() {
             onOpenLobby={() => setShowLobby(true)}
           />
 
-          {/* D-PAD Controls with PROMINENT UP (ĐI LÊN / TIẾN) button */}
+          {/* D-PAD Controls with PROMINENT UP (ĐI LÊN / TIẾN) button & NHẢY */}
           <MobileControls
             onDirectionMove={handleDirectionMove}
+            onJump={handlePlayerJump}
             onZoom={handleZoomCamera}
             onRotateCamera={handleRotateCamera}
           />

@@ -7,17 +7,20 @@ import {
   ZoomIn,
   ZoomOut,
   RotateCw,
-  RotateCcw
+  RotateCcw,
+  ChevronsUp
 } from 'lucide-react';
 
 interface MobileControlsProps {
   onDirectionMove: (dx: number, dz: number) => void;
+  onJump: () => void;
   onZoom: (delta: number) => void;
   onRotateCamera: (deltaH: number) => void;
 }
 
 export const MobileControls: React.FC<MobileControlsProps> = ({
   onDirectionMove,
+  onJump,
   onZoom,
   onRotateCamera,
 }) => {
@@ -52,31 +55,31 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
 
   return (
     <div className="pointer-events-none absolute bottom-6 left-3 sm:left-6 z-20 flex flex-col gap-2 select-none">
-      {/* Camera Rotate & Zoom helper pills */}
+      {/* 3D Camera Rotate & Zoom helper pills */}
       <div className="pointer-events-auto flex items-center gap-1.5 p-1 bg-slate-950/85 backdrop-blur-md rounded-2xl border border-slate-700/80 shadow-xl self-start">
         <button
           onClick={() => onRotateCamera(-Math.PI / 6)}
           className="w-8 h-8 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 flex items-center justify-center active:scale-90 transition-transform cursor-pointer"
-          title="Xoay Trái"
+          title="Xoay Camera Trái"
         >
           <RotateCcw className="w-3.5 h-3.5" />
         </button>
         <button
           onClick={() => onRotateCamera(Math.PI / 6)}
           className="w-8 h-8 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 flex items-center justify-center active:scale-90 transition-transform cursor-pointer"
-          title="Xoay Phải"
+          title="Xoay Camera Phải"
         >
           <RotateCw className="w-3.5 h-3.5" />
         </button>
         <button
-          onClick={() => onZoom(-0.8)}
+          onClick={() => onZoom(-0.9)}
           className="w-8 h-8 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 flex items-center justify-center active:scale-90 transition-transform cursor-pointer"
           title="Gần lại"
         >
           <ZoomIn className="w-3.5 h-3.5" />
         </button>
         <button
-          onClick={() => onZoom(0.8)}
+          onClick={() => onZoom(0.9)}
           className="w-8 h-8 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 flex items-center justify-center active:scale-90 transition-transform cursor-pointer"
           title="Xa ra"
         >
@@ -84,62 +87,74 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
         </button>
       </div>
 
-      {/* Directional D-PAD with PROMINENT UP (ĐI LÊN / TIẾN) BUTTON */}
-      <div className="pointer-events-auto flex flex-col items-center gap-1 p-2 bg-slate-950/90 backdrop-blur-md rounded-3xl border-2 border-slate-700/80 shadow-2xl">
-        {/* NÚT ĐI LÊN (TIẾN / UP) */}
-        <button
-          onPointerDown={e => {
-            e.preventDefault();
-            startMove(0, -1);
-          }}
-          className="w-14 h-13 sm:w-15 sm:h-14 rounded-2xl bg-amber-400 hover:bg-amber-300 active:scale-90 text-slate-950 font-black flex flex-col items-center justify-center shadow-lg transition-transform cursor-pointer border-2 border-white/60"
-          title="Đi Lên / Tiến Tới"
-        >
-          <ArrowUp className="w-6 h-6 stroke-[3]" />
-          <span className="text-[9px] uppercase tracking-tighter -mt-0.5">TIẾN</span>
-        </button>
-
-        {/* MIDDLE ROW: TRÁI, LÙI, PHẢI */}
-        <div className="flex items-center gap-1.5">
-          {/* NÚT QUA TRÁI */}
+      {/* Directional 3D D-PAD with PROMINENT UP (TIẾN / ĐI LÊN) & NHẢY BUTTON */}
+      <div className="pointer-events-auto flex items-end gap-2">
+        <div className="flex flex-col items-center gap-1 p-2 bg-slate-950/90 backdrop-blur-md rounded-3xl border-2 border-slate-700/80 shadow-2xl">
+          {/* NÚT TIẾN (ĐI LÊN / TIẾN TỚI) */}
           <button
             onPointerDown={e => {
               e.preventDefault();
-              startMove(-1, 0);
+              startMove(0, -1);
             }}
-            className="w-12 h-12 sm:w-13 sm:h-13 rounded-2xl bg-slate-850 bg-slate-800 hover:bg-slate-700 active:scale-90 text-white font-bold flex flex-col items-center justify-center shadow-md transition-transform cursor-pointer border border-white/20"
-            title="Qua Trái"
+            className="w-14 h-13 sm:w-15 sm:h-14 rounded-2xl bg-amber-400 hover:bg-amber-300 active:scale-90 text-slate-950 font-black flex flex-col items-center justify-center shadow-lg transition-transform cursor-pointer border-2 border-white/60"
+            title="Đi Lên / Tiến Tới"
           >
-            <ArrowLeft className="w-5 h-5 stroke-[2.5]" />
-            <span className="text-[8px] uppercase tracking-tighter -mt-0.5 text-slate-300">TRÁI</span>
+            <ArrowUp className="w-6 h-6 stroke-[3]" />
+            <span className="text-[9px] uppercase tracking-tighter -mt-0.5">TIẾN</span>
           </button>
 
-          {/* NÚT ĐI LÙI (DOWN) */}
-          <button
-            onPointerDown={e => {
-              e.preventDefault();
-              startMove(0, 1);
-            }}
-            className="w-13 h-12 sm:w-14 sm:h-13 rounded-2xl bg-slate-800 hover:bg-slate-700 active:scale-90 text-white font-bold flex flex-col items-center justify-center shadow-md transition-transform cursor-pointer border border-white/20"
-            title="Đi Lùi"
-          >
-            <ArrowDown className="w-5 h-5 stroke-[2.5]" />
-            <span className="text-[8px] uppercase tracking-tighter -mt-0.5 text-slate-300">LÙI</span>
-          </button>
+          {/* MIDDLE ROW: TRÁI, LÙI, PHẢI */}
+          <div className="flex items-center gap-1.5">
+            {/* NÚT QUA TRÁI */}
+            <button
+              onPointerDown={e => {
+                e.preventDefault();
+                startMove(-1, 0);
+              }}
+              className="w-12 h-12 sm:w-13 sm:h-13 rounded-2xl bg-slate-800 hover:bg-slate-700 active:scale-90 text-white font-bold flex flex-col items-center justify-center shadow-md transition-transform cursor-pointer border border-white/20"
+              title="Qua Trái"
+            >
+              <ArrowLeft className="w-5 h-5 stroke-[2.5]" />
+              <span className="text-[8px] uppercase tracking-tighter -mt-0.5 text-slate-300">TRÁI</span>
+            </button>
 
-          {/* NÚT QUA PHẢI */}
-          <button
-            onPointerDown={e => {
-              e.preventDefault();
-              startMove(1, 0);
-            }}
-            className="w-12 h-12 sm:w-13 sm:h-13 rounded-2xl bg-slate-800 hover:bg-slate-700 active:scale-90 text-white font-bold flex flex-col items-center justify-center shadow-md transition-transform cursor-pointer border border-white/20"
-            title="Qua Phải"
-          >
-            <ArrowRight className="w-5 h-5 stroke-[2.5]" />
-            <span className="text-[8px] uppercase tracking-tighter -mt-0.5 text-slate-300">PHẢI</span>
-          </button>
+            {/* NÚT ĐI LÙI (XUỐNG) */}
+            <button
+              onPointerDown={e => {
+                e.preventDefault();
+                startMove(0, 1);
+              }}
+              className="w-13 h-12 sm:w-14 sm:h-13 rounded-2xl bg-slate-800 hover:bg-slate-700 active:scale-90 text-white font-bold flex flex-col items-center justify-center shadow-md transition-transform cursor-pointer border border-white/20"
+              title="Đi Lùi"
+            >
+              <ArrowDown className="w-5 h-5 stroke-[2.5]" />
+              <span className="text-[8px] uppercase tracking-tighter -mt-0.5 text-slate-300">LÙI</span>
+            </button>
+
+            {/* NÚT QUA PHẢI */}
+            <button
+              onPointerDown={e => {
+                e.preventDefault();
+                startMove(1, 0);
+              }}
+              className="w-12 h-12 sm:w-13 sm:h-13 rounded-2xl bg-slate-800 hover:bg-slate-700 active:scale-90 text-white font-bold flex flex-col items-center justify-center shadow-md transition-transform cursor-pointer border border-white/20"
+              title="Qua Phải"
+            >
+              <ArrowRight className="w-5 h-5 stroke-[2.5]" />
+              <span className="text-[8px] uppercase tracking-tighter -mt-0.5 text-slate-300">PHẢI</span>
+            </button>
+          </div>
         </div>
+
+        {/* NÚT NHẢY 3D (JUMP / LÊN CAO) */}
+        <button
+          onClick={onJump}
+          className="w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-indigo-600 hover:bg-indigo-500 active:scale-90 text-white font-bold flex flex-col items-center justify-center shadow-xl transition-transform cursor-pointer border-2 border-indigo-300/60 self-center"
+          title="Nhảy 3D (Space / Jump)"
+        >
+          <ChevronsUp className="w-5 h-5" />
+          <span className="text-[9px] uppercase tracking-tighter mt-0.5">NHẢY</span>
+        </button>
       </div>
     </div>
   );
