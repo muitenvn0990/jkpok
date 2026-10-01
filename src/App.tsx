@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { GameController } from './game/gameController';
 import { soundEngine } from './game/audio';
-import { MultiplayerClient, RoomPlayer, RoomState } from './network/multiplayerClient';
+import { PaintTool } from './game/player';
+import { MultiplayerClient, RoomState } from './network/multiplayerClient';
 import { TopBar } from './components/TopBar';
 import { HUD } from './components/HUD';
 import { SeekerHUD } from './components/SeekerHUD';
@@ -9,7 +10,7 @@ import { LobbyModal } from './components/LobbyModal';
 import { MobileControls } from './components/MobileControls';
 import { GameOverModal } from './components/GameOverModal';
 import { TutorialModal } from './components/TutorialModal';
-import { BodyPart, GameStats, GameStatus, PoseType } from './types/game';
+import { GameStats, GameStatus, PoseType } from './types/game';
 
 export default function App() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -35,9 +36,10 @@ export default function App() {
   const [currentPose, setCurrentPose] = useState<PoseType>('standing');
   const [isFrozen, setIsFrozen] = useState<boolean>(false);
   const [isAlive, setIsAlive] = useState<boolean>(true);
-  const [is3DEyedropperActive, setIs3DEyedropperActive] = useState<boolean>(false);
+  const [activeTool, setActiveTool] = useState<PaintTool>('brush');
   const [activeColor, setActiveColor] = useState<string>('#1e3a8a');
   const [brushSize, setBrushSize] = useState<number>(18);
+  const [isPaintFocus, setIsPaintFocus] = useState<boolean>(false);
   const [backdropName, setBackdropName] = useState<string>('Bảo tàng');
   const [backdropMatchPercent, setBackdropMatchPercent] = useState<number>(50);
 
@@ -86,6 +88,7 @@ export default function App() {
       onStatsReady: s => setGameStats(s),
       onEyedropperSampled: (color, name) => {
         setActiveColor(color);
+        setActiveTool('brush');
         showToast(`🎨 Đã hút màu từ "${name}"`, color);
       },
       onBackdropDetected: (name, match) => {
@@ -140,7 +143,7 @@ export default function App() {
       onPeerTransform: data => {
         controller.updateRemotePeer(data);
       },
-      onPeerPaint: (id, _textureData) => {
+      onPeerPaint: (_id, _textureData) => {
         // remote peer paint update
       },
       onWhistleSound: (origin, _hiderId) => {
@@ -269,45 +272,54 @@ export default function App() {
     }
   };
 
+  const handleSelectTool = (tool: PaintTool) => {
+    setActiveTool(tool);
+    if (controllerRef.current) {
+      controllerRef.current.activeTool = tool;
+    }
+    if (tool === 'eyedropper') {
+      showToast('🧪 Nhấp vào tranh hoặc tường để hút mã màu!', '#38bdf8');
+    } else if (tool === 'bucket') {
+      showToast('🪣 Thùng sơn: Nhấp vào cơ thể để đổ màu toàn phần!', '#10b981');
+    } else if (tool === 'eraser') {
+      showToast('🧹 Cục tẩy: Tẩy sơn trên cơ thể về thạch cao trắng', '#cbd5e1');
+    }
+  };
+
   const handleSelectColor = (color: string) => {
     setActiveColor(color);
     if (controllerRef.current) {
       controllerRef.current.activeColor = color;
+      if (controllerRef.current.activeTool === 'eraser') {
+        controllerRef.current.activeTool = 'brush';
+        setActiveTool('brush');
+      }
     }
   };
 
-  const handleFillWholeBody = (color: string) => {
-    if (controllerRef.current) {
-      controllerRef.current.fillWholeBody(color);
-      showToast('Đã phủ màu toàn bộ cơ thể!', color);
-    }
-  };
-
-  const handleFillPart = (part: BodyPart, color: string) => {
-    if (controllerRef.current) {
-      controllerRef.current.fillBodyPart(part, color);
-      showToast(`Đã phủ màu cho vùng ${part}!`, color);
-    }
-  };
-
-  const handleSetBrushSize = (size: number) => {
+  const handleSelectBrushSize = (size: number) => {
     setBrushSize(size);
     if (controllerRef.current) {
       controllerRef.current.brushSize = size;
     }
   };
 
-  const handleActivate3DEyedropper = () => {
-    setIs3DEyedropperActive(true);
+  const handleTogglePaintFocus = () => {
     if (controllerRef.current) {
-      controllerRef.current.is3DEyedropperActive = true;
+      const isFocus = controllerRef.current.togglePaintFocus();
+      setIsPaintFocus(isFocus);
+      if (isFocus) {
+        showToast('🎨 Chế độ vẽ cận cảnh 360°! Xoay camera & vuốt vẽ lên cơ thể', '#3b82f6');
+      } else {
+        showToast('🏃 Đã trở lại góc nhìn di chuyển', '#10b981');
+      }
     }
-    showToast('👆 Nhấp vào bất kỳ bức tranh nào trên tường để hút mã màu!', '#38bdf8');
   };
 
   const handleUndo = () => {
     if (controllerRef.current) {
       controllerRef.current.undoPaint();
+      showToast('↩️ Đã hoàn tác nét vẽ', '#94a3b8');
     }
   };
 
@@ -360,10 +372,12 @@ export default function App() {
       <div
         ref={containerRef}
         className={`w-full h-full ${
-          is3DEyedropperActive
+          activeTool === 'eyedropper'
             ? 'cursor-crosshair'
             : role === 'seeker' && phase === 'seek'
             ? 'cursor-crosshair'
+            : isPaintFocus
+            ? 'cursor-pointer'
             : 'cursor-grab active:cursor-grabbing'
         }`}
       />
@@ -394,7 +408,7 @@ export default function App() {
         />
       )}
 
-      {/* Hider HUD (Direct 3D Paint, Match Backdrop, Color Palette, Freeze) */}
+      {/* Hider HUD (Direct 3D Paint Suite, Match Backdrop, Color Palette, Freeze) */}
       {(role === 'hider' || role === 'spectator') && phase !== 'lobby' && (
         <>
           <HUD
@@ -405,33 +419,29 @@ export default function App() {
             currentPose={currentPose}
             isFrozen={isFrozen}
             isAlive={isAlive}
-            is3DEyedropperActive={is3DEyedropperActive}
-            backdropName={backdropName}
-            backdropMatchPercent={backdropMatchPercent}
+            roomCode={room?.code}
+            activeTool={activeTool}
             activeColor={activeColor}
             brushSize={brushSize}
+            isPaintFocus={isPaintFocus}
+            backdropName={backdropName}
+            backdropMatchPercent={backdropMatchPercent}
+            onSelectTool={handleSelectTool}
             onSelectColor={handleSelectColor}
-            onFillWholeBody={handleFillWholeBody}
-            onFillPart={handleFillPart}
-            onSetBrushSize={handleSetBrushSize}
+            onSelectBrushSize={handleSelectBrushSize}
             onToggleFreeze={handleToggleFreeze}
             onSelectPose={handleSelectPose}
-            onActivate3DEyedropper={handleActivate3DEyedropper}
+            onTogglePaintFocus={handleTogglePaintFocus}
             onUndo={handleUndo}
             onClearPaint={handleClearPaint}
-            onZoomCamera={handleZoomCamera}
-            onRotateCamera={handleRotateCamera}
+            onOpenLobby={() => setShowLobby(true)}
           />
 
-          {/* D-PAD Mobile Controls with clear UP (Đi Lên/Tiến) button */}
+          {/* D-PAD Controls with PROMINENT UP (ĐI LÊN / TIẾN) button */}
           <MobileControls
             onDirectionMove={handleDirectionMove}
-            onFreezeToggle={handleToggleFreeze}
-            onFillWholeBody={() => handleFillWholeBody(activeColor)}
-            onActivateEyedropper={handleActivate3DEyedropper}
             onZoom={handleZoomCamera}
             onRotateCamera={handleRotateCamera}
-            isFrozen={isFrozen}
           />
         </>
       )}

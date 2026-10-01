@@ -1,18 +1,7 @@
-import React, { useState } from 'react';
-import {
-  PaintBucket,
-  Pipette,
-  Shield,
-  Radio,
-  Undo2,
-  Trash2,
-  Check,
-  ChevronUp,
-  ZoomIn,
-  ZoomOut,
-  RotateCw
-} from 'lucide-react';
-import { BodyPart, PoseType } from '../types/game';
+import React from 'react';
+import { PaintTool } from '../game/player';
+import { PoseType } from '../types/game';
+import { RotateCcw, Trash2, Eye } from 'lucide-react';
 
 interface HUDProps {
   phase: 'lobby' | 'hide' | 'seek' | 'ended';
@@ -22,22 +11,22 @@ interface HUDProps {
   currentPose: PoseType;
   isFrozen: boolean;
   isAlive: boolean;
-  is3DEyedropperActive: boolean;
-  backdropName: string;
-  backdropMatchPercent: number;
+  roomCode?: string;
+  activeTool: PaintTool;
   activeColor: string;
   brushSize: number;
+  isPaintFocus: boolean;
+  backdropName: string;
+  backdropMatchPercent: number;
+  onSelectTool: (tool: PaintTool) => void;
   onSelectColor: (color: string) => void;
-  onFillWholeBody: (color: string) => void;
-  onFillPart: (part: BodyPart, color: string) => void;
-  onSetBrushSize: (size: number) => void;
+  onSelectBrushSize: (size: number) => void;
   onToggleFreeze: () => void;
   onSelectPose: (pose: PoseType) => void;
-  onActivate3DEyedropper: () => void;
+  onTogglePaintFocus: () => void;
   onUndo: () => void;
   onClearPaint: () => void;
-  onZoomCamera: (delta: number) => void;
-  onRotateCamera: (deltaH: number) => void;
+  onOpenLobby: () => void;
 }
 
 export const HUD: React.FC<HUDProps> = ({
@@ -48,308 +37,313 @@ export const HUD: React.FC<HUDProps> = ({
   currentPose,
   isFrozen,
   isAlive,
-  is3DEyedropperActive,
-  backdropName,
-  backdropMatchPercent,
+  roomCode,
+  activeTool,
   activeColor,
   brushSize,
+  isPaintFocus,
+  backdropName,
+  backdropMatchPercent,
+  onSelectTool,
   onSelectColor,
-  onFillWholeBody,
-  onFillPart,
-  onSetBrushSize,
+  onSelectBrushSize,
   onToggleFreeze,
   onSelectPose,
-  onActivate3DEyedropper,
+  onTogglePaintFocus,
   onUndo,
   onClearPaint,
-  onZoomCamera,
-  onRotateCamera,
+  onOpenLobby,
 }) => {
-  const [showToolbar, setShowToolbar] = useState(true);
+  // Format mm:ss
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
 
-  const curatedColors = [
-    { label: 'Lam Đêm Van Gogh', color: '#1e3a8a' },
-    { label: 'Trăng Vàng', color: '#eab308' },
-    { label: 'Cam Lửa Munch', color: '#ea580c' },
-    { label: 'Lam Sóng Kanagawa', color: '#0284c7' },
-    { label: 'Nâu Cổ Mona Lisa', color: '#78350f' },
-    { label: 'Vàng Gỗ Quý', color: '#d97706' },
-    { label: 'Bạch Cẩm Thạch', color: '#f8fafc' },
+  const paletteColors = [
+    '#ef4444', // Carmine Red
+    '#10b981', // Emerald Green
+    '#eab308', // Sunflower Yellow
+    '#3a2e2b', // Dark Earth / Mona Lisa Umber
+    '#1e3a8a', // Van Gogh Starry Blue
+    '#f8fafc', // Plaster White
   ];
 
-  const poses: { id: PoseType; label: string; desc: string }[] = [
-    { id: 'standing', label: 'Đứng Yên', desc: 'Thường' },
-    { id: 'statue_classical', label: 'Tượng Cổ', desc: 'Bệ Đá' },
-    { id: 'wall_hug', label: 'Áp Tường', desc: 'Sát Tranh' },
-    { id: 'thinker', label: 'Suy Tư', desc: 'Tượng Vàng' },
-    { id: 'crouch_bush', label: 'Thu Gọn', desc: 'Góc Trưng Bày' },
+  const poses: { id: PoseType; label: string; icon: string }[] = [
+    { id: 'standing', label: 'Đứng Thẳng', icon: '🧍' },
+    { id: 'statue_classical', label: 'Tượng Cổ Điển', icon: '🏛️' },
+    { id: 'wall_hug', label: 'Áp Tường', icon: '🧱' },
+    { id: 'thinker', label: 'Người Suy Tưởng', icon: '🤔' },
+    { id: 'crouch_bush', label: 'Cúi Thu Gọn', icon: '🪴' },
   ];
 
   return (
-    <div className="pointer-events-none absolute inset-0 z-20 flex flex-col justify-between p-3 sm:p-5 select-none">
-      {/* 1. TOP STATUS GAUGES */}
-      <div className="mt-14 w-full max-w-4xl mx-auto flex flex-col gap-2 pointer-events-auto">
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-          {/* Phase & Main Timer */}
-          <div className="bg-slate-950/85 backdrop-blur-md rounded-2xl p-2.5 sm:p-3 border border-white/10 flex flex-col justify-between shadow-lg">
-            <div className="flex items-center justify-between text-[11px] text-slate-400">
-              <span className="font-semibold uppercase tracking-wider text-amber-400">
-                {phase === 'hide' ? '⏱️ Thời Gian Trốn' : '🔍 Thợ Săn Đang Tìm'}
-              </span>
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            </div>
-            <div className="text-xl sm:text-2xl font-bold font-mono tabular-nums text-white mt-0.5">
-              {timer}s
-            </div>
-          </div>
+    <div className="pointer-events-none absolute inset-0 z-20 overflow-hidden select-none font-sans">
+      {/* ========================================================================= */}
+      {/* 1. TOP CENTER: ĐỒNG HỒ & THANH HUÝT SÁO (Capsule Container from SVG)     */}
+      {/* ========================================================================= */}
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 pointer-events-auto">
+        <div className="relative w-[280px] sm:w-[320px] h-[86px] sm:h-[94px] rounded-[48px] bg-slate-950/90 backdrop-blur-md border-2 border-slate-700/80 shadow-[0_12px_24px_rgba(0,0,0,0.6)] flex flex-col items-center justify-center px-4 py-1.5">
+          {/* Label */}
+          <span className="text-[10px] sm:text-[11px] font-bold tracking-[2px] text-slate-400 uppercase">
+            {phase === 'hide' ? 'THỜI GIAN TRỐN' : 'THỜI GIAN TRUY TÌM'}
+          </span>
 
-          {/* Periodic Whistle Progress */}
-          <div className="bg-slate-950/85 backdrop-blur-md rounded-2xl p-2.5 sm:p-3 border border-white/10 flex flex-col justify-between shadow-lg">
-            <div className="flex items-center justify-between text-[11px] text-slate-400">
-              <span className="flex items-center gap-1">
-                <Radio className={`w-3.5 h-3.5 ${whistleTimeRemaining <= 5 ? 'text-amber-400 animate-ping' : 'text-sky-400'}`} />
-                Huýt Sáo Tự Động
-              </span>
-              <span className="font-mono text-xs tabular-nums text-slate-300">
-                {Math.ceil(whistleTimeRemaining)}s
-              </span>
-            </div>
-            <div className="w-full bg-slate-800 rounded-full h-2 mt-2 overflow-hidden">
-              <div
-                className={`h-full transition-all duration-200 ${
-                  whistleTimeRemaining <= 5 ? 'bg-amber-400 animate-pulse' : 'bg-sky-400'
-                }`}
-                style={{ width: `${Math.round(whistleProgress * 100)}%` }}
-              />
-            </div>
-          </div>
+          {/* Large Gold Time */}
+          <span className="text-3xl sm:text-4xl font-black tracking-wider text-transparent bg-clip-text bg-gradient-to-b from-yellow-300 via-amber-400 to-yellow-500 font-mono tabular-nums leading-none my-1">
+            {formatTime(timer)}
+          </span>
 
-          {/* Camouflage Quality Meter */}
-          <div className="hidden sm:flex bg-slate-950/85 backdrop-blur-md rounded-2xl p-2.5 sm:p-3 border border-white/10 flex-col justify-between shadow-lg">
-            <div className="flex items-center justify-between text-[11px] text-slate-400">
-              <span>Độ Tiệp Tranh Nền</span>
-              <span className="font-mono font-bold text-amber-300">{backdropMatchPercent}%</span>
-            </div>
-            <div className="text-xs font-semibold text-white mt-0.5 truncate">
-              {backdropName || 'Hãy lại gần kiệt tác tranh!'}
-            </div>
+          {/* Progress Bar (Whistle timer / Phase timer) */}
+          <div className="w-[180px] sm:w-[210px] h-[6px] rounded-full bg-slate-800/90 overflow-hidden mt-0.5">
+            <div
+              className={`h-full transition-all duration-200 ${
+                whistleTimeRemaining <= 5 ? 'bg-amber-400 animate-pulse' : 'bg-emerald-500'
+              }`}
+              style={{ width: `${Math.round(whistleProgress * 100)}%` }}
+            />
           </div>
         </div>
 
-        {/* Live Tips Banner */}
-        <div className="bg-slate-900/90 backdrop-blur-sm px-3.5 py-1.5 rounded-xl border border-white/10 text-xs text-slate-200 flex items-center justify-between shadow-md">
-          <span className="truncate">
-            👉 <strong className="text-amber-300">Cách vẽ:</strong> Chạm/nhấp trực tiếp vào bất kỳ vị trí nào trên cơ thể nhân vật 3D để tô vẽ, hoặc bấm <strong>"Tô Toàn Thân"</strong>!
-          </span>
-          <span className="text-[10px] text-sky-300 shrink-0 font-bold ml-2">
-            {isFrozen ? '🔒 ĐANG ĐỨNG YÊN' : '🏃 ĐANG DI CHUYỂN'}
-          </span>
-        </div>
-
-        {/* Spectator Notification */}
-        {!isAlive && (
-          <div className="bg-rose-950/90 backdrop-blur-md border border-rose-500/40 p-2.5 rounded-2xl text-center text-xs text-rose-200 font-semibold shadow-xl">
-            💀 BẠN ĐÃ BỊ THỢ SĂN BẮT! Đang xem trận đấu dưới góc nhìn Khán Giả...
+        {/* Camouflage Quality Indicator Badge */}
+        {isAlive && (
+          <div className="mt-1 flex items-center justify-center gap-1.5 px-3 py-1 rounded-full bg-slate-900/80 backdrop-blur-sm border border-white/10 text-[10px] sm:text-xs text-slate-300 shadow-md">
+            <Eye className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Tiệp màu:</span>
+            <span className="font-bold text-white">{backdropName}</span>
+            <span
+              className={`font-mono font-bold ${
+                backdropMatchPercent >= 80
+                  ? 'text-emerald-400'
+                  : backdropMatchPercent >= 60
+                  ? 'text-amber-400'
+                  : 'text-rose-400'
+              }`}
+            >
+              {backdropMatchPercent}%
+            </span>
           </div>
         )}
       </div>
 
-      {/* 2. BOTTOM CAMOUFLAGE & PAINT TOOLBAR */}
-      {isAlive && (
-        <div className="w-full max-w-4xl mx-auto flex flex-col gap-1.5 pointer-events-auto">
-          {/* Collapse toggle */}
-          <div className="flex justify-end">
-            <button
-              onClick={() => setShowToolbar(!showToolbar)}
-              className="px-2.5 py-1 text-xs bg-slate-900/85 backdrop-blur-sm text-slate-300 hover:text-white rounded-t-lg border-t border-x border-white/10 flex items-center gap-1 cursor-pointer"
-            >
-              <span>{showToolbar ? 'Thu Gọn Bảng Vẽ' : 'Mở Bảng Vẽ'}</span>
-              <ChevronUp className={`w-3.5 h-3.5 transition-transform ${showToolbar ? 'rotate-180' : ''}`} />
-            </button>
+      {/* ========================================================================= */}
+      {/* 2. TOP RIGHT: THÔNG TIN MÃ PHÒNG (Room Code Pill from SVG)                */}
+      {/* ========================================================================= */}
+      <div className="absolute top-4 right-4 sm:right-6 pointer-events-auto">
+        <button
+          onClick={onOpenLobby}
+          className="w-[150px] sm:w-[180px] h-[60px] sm:h-[68px] rounded-[22px] bg-slate-950/90 backdrop-blur-md border-2 border-slate-700/80 shadow-[0_12px_24px_rgba(0,0,0,0.6)] flex flex-col items-center justify-center p-2 hover:border-indigo-400 transition-colors cursor-pointer group"
+        >
+          <span className="text-[10px] font-bold tracking-[1px] text-slate-400 group-hover:text-slate-300 uppercase">
+            MÃ PHÒNG
+          </span>
+          <span className="text-base sm:text-lg font-extrabold text-indigo-400 font-mono tracking-wide mt-0.5">
+            {roomCode ? `ROOM-${roomCode}` : 'SOLO-8821'}
+          </span>
+        </button>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* 3. TOP LEFT: BỘ BẢNG CÔNG CỤ VẼ THỦ CÔNG (Vertical Toolbar from SVG)      */}
+      {/* ========================================================================= */}
+      <div className="absolute top-4 left-3 sm:left-6 pointer-events-auto">
+        <div className="w-[80px] sm:w-[92px] py-3.5 px-2 rounded-[30px] bg-slate-950/90 backdrop-blur-md border-2 border-slate-700/80 shadow-[0_12px_24px_rgba(0,0,0,0.6)] flex flex-col items-center gap-2.5">
+          {/* Cọ Vẽ (Brush) */}
+          <button
+            onClick={() => onSelectTool('brush')}
+            className={`relative w-12 h-12 sm:w-14 sm:h-14 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+              activeTool === 'brush'
+                ? 'bg-blue-600 shadow-[0_0_16px_rgba(59,130,246,0.85)] scale-105 border-2 border-white'
+                : 'bg-slate-900 border-2 border-slate-700 hover:border-slate-500'
+            }`}
+            title="Cọ Vẽ (Brush) - Chạm/vuốt lên nhân vật để tô màu trực tiếp"
+          >
+            <span className="text-2xl sm:text-3xl">🖌️</span>
+          </button>
+
+          {/* Hút Màu (Eyedropper) */}
+          <button
+            onClick={() => onSelectTool('eyedropper')}
+            className={`relative w-11 h-11 sm:w-13 sm:h-13 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+              activeTool === 'eyedropper'
+                ? 'bg-blue-600 shadow-[0_0_16px_rgba(59,130,246,0.85)] scale-105 border-2 border-white'
+                : 'bg-slate-900 border-2 border-slate-700 hover:border-slate-500'
+            }`}
+            title="Hút Màu Tranh 3D (Eyedropper) - Nhấp vào tranh hoặc tường để lấy màu"
+          >
+            <span className="text-xl sm:text-2xl">🧪</span>
+          </button>
+
+          {/* Thùng Sơn (Bucket Fill) */}
+          <button
+            onClick={() => onSelectTool('bucket')}
+            className={`relative w-11 h-11 sm:w-13 sm:h-13 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+              activeTool === 'bucket'
+                ? 'bg-blue-600 shadow-[0_0_16px_rgba(59,130,246,0.85)] scale-105 border-2 border-white'
+                : 'bg-slate-900 border-2 border-slate-700 hover:border-slate-500'
+            }`}
+            title="Thùng Sơn Đổ Màu (Paint Bucket) - Nhấp vào nhân vật để đổ màu vùng đó"
+          >
+            <span className="text-xl sm:text-2xl">🪣</span>
+          </button>
+
+          {/* Cục Tẩy (Eraser) */}
+          <button
+            onClick={() => onSelectTool('eraser')}
+            className={`relative w-11 h-11 sm:w-13 sm:h-13 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+              activeTool === 'eraser'
+                ? 'bg-blue-600 shadow-[0_0_16px_rgba(59,130,246,0.85)] scale-105 border-2 border-white'
+                : 'bg-slate-900 border-2 border-slate-700 hover:border-slate-500'
+            }`}
+            title="Cục Tẩy (Eraser) - Tẩy sơn về màu thạch cao trắng"
+          >
+            <span className="text-xl sm:text-2xl">🧹</span>
+          </button>
+
+          {/* Divider */}
+          <div className="w-10 h-[2px] bg-slate-800 rounded-full my-0.5" />
+
+          {/* BẢNG MÀU (COLOR PALETTE) */}
+          <div className="grid grid-cols-2 gap-1.5 p-0.5">
+            {paletteColors.map(color => {
+              const isActive = activeColor.toLowerCase() === color.toLowerCase();
+              return (
+                <button
+                  key={color}
+                  onClick={() => onSelectColor(color)}
+                  className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full transition-transform cursor-pointer flex items-center justify-center ${
+                    isActive
+                      ? 'scale-110 border-2 border-white shadow-[0_0_12px_rgba(255,255,255,0.9)] ring-2 ring-blue-400'
+                      : 'border border-white/20 hover:scale-105 opacity-85'
+                  }`}
+                  style={{ backgroundColor: color }}
+                  title={color}
+                />
+              );
+            })}
           </div>
 
-          {showToolbar && (
-            <div className="bg-slate-950/95 backdrop-blur-xl rounded-2xl p-3 sm:p-4 border border-white/15 shadow-2xl flex flex-col gap-2.5">
-              {/* Row 1: Action Buttons */}
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-2.5">
-                {/* Fill Whole Body Button */}
-                <button
-                  onClick={() => onFillWholeBody(activeColor)}
-                  className="flex-1 min-w-[140px] py-2.5 px-3.5 rounded-xl font-bold text-xs sm:text-sm bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 hover:brightness-110 text-slate-950 flex items-center justify-center gap-2 shadow-lg transition-transform active:scale-95 cursor-pointer"
-                  title="Đổ màu hiện tại phủ kín toàn bộ cơ thể"
-                >
-                  <PaintBucket className="w-4 h-4 fill-current" />
-                  <span>TÔ TOÀN THÂN</span>
-                </button>
+          {/* Custom color picker input */}
+          <div className="flex items-center justify-center">
+            <input
+              type="color"
+              value={activeColor}
+              onChange={e => onSelectColor(e.target.value)}
+              className="w-7 h-7 rounded-full cursor-pointer bg-transparent border-0"
+              title="Pha màu tùy chọn"
+            />
+          </div>
 
-                {/* 3D Eyedropper on Painting */}
-                <button
-                  onClick={onActivate3DEyedropper}
-                  className={`py-2.5 px-3.5 rounded-xl font-medium text-xs sm:text-sm flex items-center gap-1.5 transition-colors cursor-pointer border ${
-                    is3DEyedropperActive
-                      ? 'bg-sky-500 text-slate-950 border-sky-300 ring-2 ring-sky-300'
-                      : 'bg-slate-800 hover:bg-slate-700 text-sky-300 border-white/10'
-                  }`}
-                  title="Nhấp vào bất kỳ bức tranh nào trên tường để hút mã màu"
-                >
-                  <Pipette className="w-4 h-4 text-sky-400" />
-                  <span>{is3DEyedropperActive ? 'Nhấp Vào Tranh...' : 'Hút Màu Tranh 3D'}</span>
-                </button>
+          {/* Divider */}
+          <div className="w-10 h-[2px] bg-slate-800 rounded-full my-0.5" />
 
-                {/* Big Freeze Pose Toggle */}
-                <button
-                  onClick={onToggleFreeze}
-                  className={`flex-1 min-w-[150px] py-2.5 px-4 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md ${
-                    isFrozen
-                      ? 'bg-sky-500 hover:bg-sky-400 text-slate-950 ring-2 ring-sky-300 ring-offset-2 ring-offset-slate-950 animate-pulse'
-                      : 'bg-slate-800 hover:bg-slate-700 text-white border border-white/15'
-                  }`}
-                >
-                  <Shield className="w-4 h-4" />
-                  <span>{isFrozen ? 'ĐANG KHÓA TƯ THẾ' : 'KHÓA TƯ THẾ (SPACE)'}</span>
-                </button>
+          {/* Brush Sizes */}
+          <div className="flex items-center gap-1">
+            {[10, 18, 28].map(sz => (
+              <button
+                key={sz}
+                onClick={() => onSelectBrushSize(sz)}
+                className={`w-5 h-5 rounded-full flex items-center justify-center transition-all ${
+                  brushSize === sz
+                    ? 'bg-blue-500 text-white font-bold ring-1 ring-white'
+                    : 'bg-slate-800 text-slate-400 hover:text-white'
+                }`}
+                title={`Cỡ cọ ${sz}px`}
+              >
+                <span
+                  className="rounded-full bg-current"
+                  style={{ width: sz === 10 ? 4 : sz === 18 ? 7 : 10, height: sz === 10 ? 4 : sz === 18 ? 7 : 10 }}
+                />
+              </button>
+            ))}
+          </div>
 
-                {/* Camera Zoom buttons for desktop/tablet */}
-                <div className="hidden sm:flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-white/10">
-                  <button
-                    onClick={() => onRotateCamera(Math.PI / 6)}
-                    className="p-1.5 text-slate-300 hover:text-white rounded-lg hover:bg-slate-800"
-                    title="Xoay góc nhìn 3D"
-                  >
-                    <RotateCw className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={() => onZoomCamera(-0.6)}
-                    className="p-1.5 text-slate-300 hover:text-white rounded-lg hover:bg-slate-800"
-                    title="Phóng to"
-                  >
-                    <ZoomIn className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={() => onZoomCamera(0.6)}
-                    className="p-1.5 text-slate-300 hover:text-white rounded-lg hover:bg-slate-800"
-                    title="Thu nhỏ"
-                  >
-                    <ZoomOut className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
+          {/* Undo & Clear Action Buttons */}
+          <div className="flex items-center gap-1.5 mt-0.5">
+            <button
+              onClick={onUndo}
+              className="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center active:scale-90 transition-transform"
+              title="Hoàn tác (Undo)"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={onClearPaint}
+              className="w-7 h-7 rounded-lg bg-slate-800 hover:bg-rose-900/60 text-slate-300 hover:text-rose-300 flex items-center justify-center active:scale-90 transition-transform"
+              title="Xóa hết sơn"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      </div>
 
-              {/* Row 2: Part-specific fill buttons */}
-              <div className="flex items-center gap-1 text-xs">
-                <span className="text-[11px] text-slate-400 mr-1">Tô Nhanh Vùng:</span>
-                {(['head', 'torso', 'arms', 'legs'] as BodyPart[]).map(part => {
-                  const labels: Record<BodyPart, string> = {
-                    all: 'Toàn Thân',
-                    head: 'Đầu',
-                    torso: 'Thân',
-                    arms: 'Tay',
-                    legs: 'Chân',
-                  };
-                  return (
-                    <button
-                      key={part}
-                      onClick={() => onFillPart(part, activeColor)}
-                      className="px-2.5 py-1 text-xs rounded-lg bg-slate-900 hover:bg-slate-800 border border-white/10 text-slate-300 hover:text-white transition-colors cursor-pointer"
-                    >
-                      Tô {labels[part]}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* Row 3: Color Palette & Brush Size */}
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="text-[11px] text-slate-400 mr-1">Màu Sơn:</span>
-                  {curatedColors.map(c => {
-                    const isSelected = activeColor.toLowerCase() === c.color.toLowerCase();
-                    return (
-                      <button
-                        key={c.color}
-                        onClick={() => onSelectColor(c.color)}
-                        className={`w-7 h-7 rounded-lg border transition-transform cursor-pointer flex items-center justify-center ${
-                          isSelected
-                            ? 'scale-115 border-white ring-2 ring-amber-400 shadow-md'
-                            : 'border-white/20 hover:scale-105'
-                        }`}
-                        style={{ backgroundColor: c.color }}
-                        title={c.label}
-                      >
-                        {isSelected && <Check className="w-3.5 h-3.5 text-white drop-shadow" />}
-                      </button>
-                    );
-                  })}
-
-                  <input
-                    type="color"
-                    value={activeColor}
-                    onChange={e => onSelectColor(e.target.value)}
-                    className="w-7 h-7 rounded-lg cursor-pointer bg-transparent border-0"
-                    title="Pha màu tùy chọn"
-                  />
-                </div>
-
-                {/* Brush Size & Undo Actions */}
-                <div className="flex items-center gap-2">
-                  <div className="flex items-center gap-1.5 bg-slate-900 px-2 py-1 rounded-lg border border-white/10">
-                    <span className="text-[10px] text-slate-400">Cỡ Cọ:</span>
-                    <input
-                      type="range"
-                      min="8"
-                      max="36"
-                      value={brushSize}
-                      onChange={e => onSetBrushSize(Number(e.target.value))}
-                      className="w-16 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-amber-400"
-                    />
-                    <span className="text-[10px] font-mono text-slate-300">{brushSize}px</span>
-                  </div>
-
-                  <button
-                    onClick={onUndo}
-                    className="px-2.5 py-1 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center gap-1 border border-white/10 cursor-pointer"
-                    title="Hoàn tác nét vẽ"
-                  >
-                    <Undo2 className="w-3.5 h-3.5" />
-                    <span>Hoàn Tác</span>
-                  </button>
-                  <button
-                    onClick={onClearPaint}
-                    className="px-2 py-1 text-xs rounded-lg bg-slate-800 hover:bg-rose-500/20 text-rose-300 flex items-center gap-1 border border-white/10 cursor-pointer"
-                    title="Xóa hết về màu trắng ban đầu"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Row 4: Poses */}
-              <div className="flex items-center justify-between gap-1.5 border-t border-white/5 pt-2 overflow-x-auto">
-                <span className="text-[11px] text-slate-400 shrink-0 mr-1">Tư Thế:</span>
-                <div className="flex items-center gap-1.5 flex-1">
-                  {poses.map(p => {
-                    const isActive = currentPose === p.id && isFrozen;
-                    return (
-                      <button
-                        key={p.id}
-                        onClick={() => onSelectPose(p.id)}
-                        className={`px-2.5 py-1 text-xs rounded-lg border whitespace-nowrap transition-all cursor-pointer ${
-                          isActive
-                            ? 'bg-sky-500/25 border-sky-400 text-sky-200 font-bold'
-                            : 'bg-slate-900/60 border-white/10 text-slate-300 hover:bg-slate-800'
-                        }`}
-                      >
-                        <span>{p.label}</span>
-                        <span className="hidden sm:inline text-[10px] text-slate-400 ml-1">({p.desc})</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          )}
+      {/* ========================================================================= */}
+      {/* 4. POSE SELECTION BAR (When Frozen)                                       */}
+      {/* ========================================================================= */}
+      {isFrozen && (
+        <div className="absolute bottom-28 sm:bottom-32 left-1/2 -translate-x-1/2 pointer-events-auto flex items-center gap-2 px-3 py-2 rounded-2xl bg-slate-950/90 backdrop-blur-md border border-emerald-500/50 shadow-2xl animate-in fade-in duration-200">
+          <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider mr-1 hidden sm:inline">
+            Tư Thế:
+          </span>
+          {poses.map(p => (
+            <button
+              key={p.id}
+              onClick={() => onSelectPose(p.id)}
+              className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer ${
+                currentPose === p.id
+                  ? 'bg-emerald-500 text-slate-950 font-bold shadow-md scale-105'
+                  : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'
+              }`}
+            >
+              <span>{p.icon}</span>
+              <span className="hidden sm:inline">{p.label}</span>
+            </button>
+          ))}
         </div>
       )}
+
+      {/* ========================================================================= */}
+      {/* 5. BOTTOM RIGHT: NÚT HÀNH ĐỘNG ("VẼ" & "KHÓA" from SVG)                   */}
+      {/* ========================================================================= */}
+      <div className="absolute bottom-6 right-4 sm:right-8 pointer-events-auto flex items-end gap-3 sm:gap-4">
+        {/* Nút VẼ (Toggle Paint Focus Camera Zoom / 360 Mode) */}
+        <button
+          onClick={onTogglePaintFocus}
+          className="flex flex-col items-center cursor-pointer group transition-transform active:scale-90"
+        >
+          <div
+            className={`w-[72px] h-[72px] sm:w-[84px] sm:h-[84px] rounded-full bg-gradient-to-br from-blue-500 to-blue-700 border-[3px] border-blue-300 shadow-[0_12px_24px_rgba(0,0,0,0.6)] flex items-center justify-center text-3xl sm:text-4xl transition-all ${
+              isPaintFocus ? 'ring-4 ring-blue-300 scale-105 shadow-[0_0_24px_rgba(59,130,246,0.9)]' : 'group-hover:scale-105'
+            }`}
+          >
+            🎨
+          </div>
+          <span className="text-white text-[11px] sm:text-xs font-black tracking-wider mt-1 drop-shadow uppercase">
+            {isPaintFocus ? 'XONG VẼ' : 'VẼ'}
+          </span>
+        </button>
+
+        {/* Nút KHÓA TƯ THẾ (FREEZE - Green Glowing Rounded Square from SVG) */}
+        <button
+          onClick={onToggleFreeze}
+          className="flex flex-col items-center cursor-pointer group transition-transform active:scale-95"
+        >
+          <div
+            className={`w-[104px] h-[104px] sm:w-[124px] sm:h-[124px] rounded-[36px] sm:rounded-[44px] bg-gradient-to-br from-emerald-500 to-emerald-700 border-[4px] border-emerald-200 shadow-[0_0_24px_rgba(16,185,129,0.7)] flex flex-col items-center justify-center transition-all ${
+              isFrozen
+                ? 'ring-4 ring-emerald-300 scale-105 shadow-[0_0_36px_rgba(16,185,129,1)]'
+                : 'group-hover:scale-105'
+            }`}
+          >
+            <span className="text-4xl sm:text-5xl leading-none">🧊</span>
+            <span className="text-white text-xs sm:text-sm font-black tracking-[1.5px] mt-1 uppercase">
+              {isFrozen ? 'ĐÃ KHÓA' : 'KHÓA'}
+            </span>
+          </div>
+        </button>
+      </div>
     </div>
   );
 };

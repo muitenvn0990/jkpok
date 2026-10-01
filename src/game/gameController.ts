@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { BodyPart, GameStats, GameStatus, PoseType } from '../types/game';
 import { soundEngine } from './audio';
 import { ArtGalleryEnvironment, MuseumExhibit } from './environment';
-import { PlayerCharacter } from './player';
+import { PaintTool, PlayerCharacter } from './player';
 import { WhistleEngine } from './whistleEngine';
 import { MultiplayerClient, RoomPlayer } from '../network/multiplayerClient';
 
@@ -48,15 +48,16 @@ export class GameController {
   public penaltyTimer: number = 0;
 
   // Painting settings
+  public activeTool: PaintTool = 'brush';
   public activeColor: string = '#1e3a8a';
   public brushSize: number = 18;
-  public is3DEyedropperActive: boolean = false;
-  private isPaintingOnCharacter: boolean = false;
+  public isPaintingOnCharacter: boolean = false;
 
-  // Camera System (Redesigned smooth orbit camera with damping)
+  // Camera System
+  public isPaintFocus: boolean = false;
   public cameraAngleH: number = 0;
-  public cameraAngleV: number = 0.38;
-  public cameraDistance: number = 5.8;
+  public cameraAngleV: number = 0.32;
+  public cameraDistance: number = 5.2;
   private targetCameraPos: THREE.Vector3 = new THREE.Vector3();
   private targetLookAt: THREE.Vector3 = new THREE.Vector3();
 
@@ -98,7 +99,7 @@ export class GameController {
     this.environment = new ArtGalleryEnvironment();
     this.scene.add(this.environment.scene);
 
-    // 5. Local Player Mannequin (Rounded organic figure)
+    // 5. Local Player Mannequin (100% Rounded organic figure, no cubes!)
     this.player = new PlayerCharacter('local', 'Họa Sĩ Trốn');
     this.scene.add(this.player.group);
     this.player.position.set(0, 0, 0);
@@ -114,10 +115,10 @@ export class GameController {
   }
 
   private setupLighting() {
-    const ambient = new THREE.AmbientLight(0xfff7ed, 0.9);
+    const ambient = new THREE.AmbientLight(0xfff7ed, 0.95);
     this.scene.add(ambient);
 
-    const mainLight = new THREE.DirectionalLight(0xffedd5, 1.3);
+    const mainLight = new THREE.DirectionalLight(0xffedd5, 1.35);
     mainLight.position.set(10, 16, 8);
     mainLight.castShadow = true;
     mainLight.shadow.mapSize.width = 1024;
@@ -125,7 +126,7 @@ export class GameController {
     mainLight.shadow.bias = -0.0008;
     this.scene.add(mainLight);
 
-    const fillLight = new THREE.DirectionalLight(0x93c5fd, 0.4);
+    const fillLight = new THREE.DirectionalLight(0x93c5fd, 0.45);
     fillLight.position.set(-12, 10, -12);
     this.scene.add(fillLight);
   }
@@ -135,18 +136,30 @@ export class GameController {
   }
 
   /**
+   * Toggle Paint Focus (Camera zooms in close to mannequin, allowing 360 deg painting)
+   */
+  public togglePaintFocus(): boolean {
+    this.isPaintFocus = !this.isPaintFocus;
+    return this.isPaintFocus;
+  }
+
+  /**
    * Adjust camera distance (Zoom In / Out)
    */
   public zoomCamera(delta: number) {
-    this.cameraDistance = Math.max(2.8, Math.min(12.0, this.cameraDistance + delta));
+    if (this.isPaintFocus) {
+      this.cameraDistance = Math.max(1.6, Math.min(3.6, this.cameraDistance + delta));
+    } else {
+      this.cameraDistance = Math.max(2.8, Math.min(10.0, this.cameraDistance + delta));
+    }
   }
 
   /**
    * Rotate camera horizontally / vertically
    */
-  public rotateCamera(deltaH: number, deltaV: number) {
+  public rotateCamera(deltaH: number, deltaV: number = 0) {
     this.cameraAngleH -= deltaH;
-    this.cameraAngleV = Math.max(0.06, Math.min(1.25, this.cameraAngleV + deltaV));
+    this.cameraAngleV = Math.max(0.04, Math.min(1.28, this.cameraAngleV + deltaV));
   }
 
   /**
@@ -317,13 +330,19 @@ export class GameController {
       const hit = intersects[0];
       const hitMesh = hit.object as THREE.Mesh;
       if (hit.uv) {
-        this.player.paintAtExactUV(hitMesh, hit.uv, this.activeColor, this.brushSize);
+        this.player.paintAtExactUV(
+          hitMesh,
+          hit.uv,
+          this.activeColor,
+          this.brushSize,
+          this.activeTool
+        );
         return true;
       }
     }
 
-    // 2. 3D Eyedropper on Paintings
-    if (this.is3DEyedropperActive) {
+    // 2. 3D Eyedropper on Paintings or Walls
+    if (this.activeTool === 'eyedropper') {
       const sceneHits = raycaster.intersectObjects(this.environment.interactiveMeshes, true);
       if (sceneHits.length > 0) {
         const hitMesh = sceneHits[0].object as THREE.Mesh;
@@ -332,8 +351,14 @@ export class GameController {
           this.activeColor = exhibit.dominantColors[0];
           soundEngine.playSample();
           this.callbacks.onEyedropperSampled(this.activeColor, exhibit.nameVi);
+        } else {
+          // If clicked a general surface, pick a default museum tone
+          this.activeColor = '#d97706';
+          soundEngine.playSample();
+          this.callbacks.onEyedropperSampled(this.activeColor, 'Bức tường bảo tàng');
         }
-        this.is3DEyedropperActive = false;
+        // Switch back to brush after sampling
+        this.activeTool = 'brush';
         return true;
       }
     }
@@ -410,11 +435,11 @@ export class GameController {
 
     const moveInput = new THREE.Vector3();
 
-    // WASD and Arrow Keys
-    if (this.keys['KeyW'] || this.keys['ArrowUp']) moveInput.z -= 1;
-    if (this.keys['KeyS'] || this.keys['ArrowDown']) moveInput.z += 1;
-    if (this.keys['KeyA'] || this.keys['ArrowLeft']) moveInput.x -= 1;
-    if (this.keys['KeyD'] || this.keys['ArrowRight']) moveInput.x += 1;
+    // WASD and Arrow Keys (support both code and key)
+    if (this.keys['KeyW'] || this.keys['ArrowUp'] || this.keys['w'] || this.keys['W']) moveInput.z -= 1;
+    if (this.keys['KeyS'] || this.keys['ArrowDown'] || this.keys['s'] || this.keys['S']) moveInput.z += 1;
+    if (this.keys['KeyA'] || this.keys['ArrowLeft'] || this.keys['a'] || this.keys['A']) moveInput.x -= 1;
+    if (this.keys['KeyD'] || this.keys['ArrowRight'] || this.keys['d'] || this.keys['D']) moveInput.x += 1;
 
     // Directional controls / Joystick
     if (Math.abs(this.joystickVector.x) > 0.04 || Math.abs(this.joystickVector.y) > 0.04) {
@@ -436,11 +461,11 @@ export class GameController {
         .addScaledVector(camForward, -moveInput.z)
         .normalize();
 
-      const speed = this.keys['ShiftLeft'] || this.keys['ShiftRight'] ? 5.4 : 3.6;
+      const speed = this.keys['ShiftLeft'] || this.keys['ShiftRight'] ? 5.5 : 3.8;
       const stepX = worldMoveDir.x * speed * delta;
       const stepZ = worldMoveDir.z * speed * delta;
 
-      // Smooth collision check
+      // Smooth collision check: sliding along walls without sticking
       const nextPosX = new THREE.Vector3(this.player.position.x + stepX, 0, this.player.position.z);
       if (!this.environment.checkCollision(nextPosX)) {
         this.player.position.x += stepX;
@@ -452,7 +477,7 @@ export class GameController {
       }
 
       const targetAngle = Math.atan2(worldMoveDir.x, worldMoveDir.z);
-      this.player.rotationY = this.lerpAngle(this.player.rotationY, targetAngle, delta * 12);
+      this.player.rotationY = this.lerpAngle(this.player.rotationY, targetAngle, delta * 14);
 
       if (Math.random() < 0.08) {
         soundEngine.playStep();
@@ -474,7 +499,7 @@ export class GameController {
   }
 
   /**
-   * Smooth, comfortable orbital camera with lerp damping
+   * Smooth orbital camera with lerp damping
    */
   private updateCamera(delta: number) {
     if (this.currentRole === 'seeker') {
@@ -485,10 +510,14 @@ export class GameController {
       this.camera.position.lerp(new THREE.Vector3(x, y, z), delta * 12);
       this.camera.lookAt(target);
     } else {
-      const target = this.player.position.clone().add(new THREE.Vector3(0, 1.15, 0));
-      const x = target.x + this.cameraDistance * Math.sin(this.cameraAngleH) * Math.cos(this.cameraAngleV);
-      const y = target.y + this.cameraDistance * Math.sin(this.cameraAngleV);
-      const z = target.z + this.cameraDistance * Math.cos(this.cameraAngleH) * Math.cos(this.cameraAngleV);
+      // If Paint Focus is active, zoom in close to chest/torso
+      const lookY = this.isPaintFocus ? 1.05 : 1.15;
+      const targetDist = this.isPaintFocus ? 2.4 : this.cameraDistance;
+
+      const target = this.player.position.clone().add(new THREE.Vector3(0, lookY, 0));
+      const x = target.x + targetDist * Math.sin(this.cameraAngleH) * Math.cos(this.cameraAngleV);
+      const y = target.y + targetDist * Math.sin(this.cameraAngleV);
+      const z = target.z + targetDist * Math.cos(this.cameraAngleH) * Math.cos(this.cameraAngleV);
 
       this.targetCameraPos.set(x, y, z);
       this.camera.position.lerp(this.targetCameraPos, Math.min(1, delta * 10));
@@ -500,6 +529,7 @@ export class GameController {
   private bindEvents() {
     window.addEventListener('keydown', this.handleKeyDown);
     window.addEventListener('keyup', this.handleKeyUp);
+    window.addEventListener('blur', this.handleWindowBlur);
 
     const el = this.renderer.domElement;
     el.addEventListener('pointerdown', this.handlePointerDown);
@@ -511,6 +541,7 @@ export class GameController {
 
   private handleKeyDown = (e: KeyboardEvent) => {
     this.keys[e.code] = true;
+    this.keys[e.key] = true;
 
     if (e.code === 'Space') {
       e.preventDefault();
@@ -526,6 +557,12 @@ export class GameController {
 
   private handleKeyUp = (e: KeyboardEvent) => {
     this.keys[e.code] = false;
+    this.keys[e.key] = false;
+  };
+
+  private handleWindowBlur = () => {
+    this.keys = {};
+    this.joystickVector = { x: 0, y: 0 };
   };
 
   private handlePointerDown = (e: PointerEvent) => {
@@ -566,7 +603,10 @@ export class GameController {
 
   private handlePointerUp = () => {
     this.isCameraDragging = false;
-    this.isPaintingOnCharacter = false;
+    if (this.isPaintingOnCharacter) {
+      this.isPaintingOnCharacter = false;
+      this.player.endPaintStroke();
+    }
   };
 
   private handleWheel = (e: WheelEvent) => {
@@ -594,6 +634,7 @@ export class GameController {
     }
     window.removeEventListener('keydown', this.handleKeyDown);
     window.removeEventListener('keyup', this.handleKeyUp);
+    window.removeEventListener('blur', this.handleWindowBlur);
     window.removeEventListener('resize', this.handleResize);
 
     const el = this.renderer?.domElement;

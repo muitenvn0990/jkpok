@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { BodyPart, PoseType } from '../types/game';
 import { soundEngine } from './audio';
 
+export type PaintTool = 'brush' | 'bucket' | 'eraser' | 'eyedropper';
+
 export interface PaintablePart {
   part: BodyPart;
   mesh: THREE.Mesh;
@@ -29,7 +31,7 @@ export class PlayerCharacter {
   private leftShinGroup: THREE.Group;
   private rightShinGroup: THREE.Group;
 
-  // Body parts list with dedicated canvas textures for 100% accurate, no-bleed painting!
+  // Body parts list with dedicated canvas textures: 100% accurate, zero bleeding!
   public paintableParts: Map<THREE.Mesh, PaintablePart> = new Map();
   public allMeshList: THREE.Mesh[] = [];
 
@@ -48,6 +50,10 @@ export class PlayerCharacter {
 
   // Undo history (stores snapshots of each part's canvas)
   private historyStack: { part: THREE.Mesh; data: ImageData }[] = [];
+
+  // Track last painted UV for smooth stroke interpolation
+  private lastPaintedMesh: THREE.Mesh | null = null;
+  private lastPaintedUV: THREE.Vector2 | null = null;
 
   constructor(id: string = 'local', name: string = 'Họa Sĩ Trốn') {
     this.id = id;
@@ -74,8 +80,8 @@ export class PlayerCharacter {
     // Build the completely ROUNDED, organic mannequin (Capsules & Spheres, ZERO BOXES!)
     this.buildRoundedMannequin();
 
-    // Freeze ground indicator ring
-    const ringGeo = new THREE.RingGeometry(0.75, 0.88, 36);
+    // Freeze ground indicator ring (glowing cyan circle)
+    const ringGeo = new THREE.RingGeometry(0.75, 0.9, 36);
     ringGeo.rotateX(-Math.PI / 2);
     const ringMat = new THREE.MeshBasicMaterial({
       color: 0x38bdf8,
@@ -88,11 +94,11 @@ export class PlayerCharacter {
     this.group.add(this.freezeRingMesh);
 
     // Initial fill with classic white plaster
-    this.fillAllParts('#f8fafc');
+    this.fillAllParts('#f8fafc', false);
   }
 
   /**
-   * Helper to create a dedicated high-precision canvas texture for a mesh
+   * Helper to create a dedicated high-precision canvas texture for each mesh
    */
   private createPartMaterial(part: BodyPart, width: number = 256, height: number = 256): {
     material: THREE.MeshStandardMaterial;
@@ -115,20 +121,25 @@ export class PlayerCharacter {
 
     const material = new THREE.MeshStandardMaterial({
       map: texture,
-      roughness: 0.55,
-      metalness: 0.04,
+      roughness: 0.6,
+      metalness: 0.05,
     });
 
     return { material, canvas, ctx, texture };
   }
 
-  private registerPaintableMesh(mesh: THREE.Mesh, part: BodyPart, pData: {
-    canvas: HTMLCanvasElement;
-    ctx: CanvasRenderingContext2D;
-    texture: THREE.CanvasTexture;
-  }) {
+  private registerPaintableMesh(
+    mesh: THREE.Mesh,
+    part: BodyPart,
+    pData: {
+      canvas: HTMLCanvasElement;
+      ctx: CanvasRenderingContext2D;
+      texture: THREE.CanvasTexture;
+    }
+  ) {
     mesh.castShadow = true;
     mesh.receiveShadow = true;
+    mesh.geometry.computeVertexNormals();
     this.allMeshList.push(mesh);
     this.paintableParts.set(mesh, {
       part,
@@ -142,13 +153,13 @@ export class PlayerCharacter {
   /**
    * BUILD COMPLETELY ROUNDED MANNEQUIN:
    * Uses CapsuleGeometry and SphereGeometry throughout.
-   * NO blocky boxes, NO square corners!
+   * NO blocky boxes, NO square corners, NO weird protruding cubes!
    */
   private buildRoundedMannequin() {
     // 1. Pelvis / Hips (Smooth rounded sphere-ellipsoid)
     const pelvisData = this.createPartMaterial('torso', 256, 256);
-    const pelvisGeo = new THREE.SphereGeometry(0.24, 24, 20);
-    pelvisGeo.scale(1.15, 0.85, 0.95);
+    const pelvisGeo = new THREE.SphereGeometry(0.24, 28, 24);
+    pelvisGeo.scale(1.15, 0.88, 0.95);
     const pelvisMesh = new THREE.Mesh(pelvisGeo, pelvisData.material);
     pelvisMesh.position.y = 0.9;
     this.mannequinRoot.add(pelvisMesh);
@@ -159,30 +170,30 @@ export class PlayerCharacter {
     this.mannequinRoot.add(this.torsoGroup);
 
     const torsoData = this.createPartMaterial('torso', 256, 256);
-    const torsoGeo = new THREE.CapsuleGeometry(0.22, 0.22, 16, 24);
+    const torsoGeo = new THREE.CapsuleGeometry(0.21, 0.22, 20, 24);
     const torsoMesh = new THREE.Mesh(torsoGeo, torsoData.material);
     torsoMesh.position.y = 0.16;
     this.torsoGroup.add(torsoMesh);
     this.registerPaintableMesh(torsoMesh, 'torso', torsoData);
 
-    // 3. Chest (Upper Torso - Rounded Capsule)
+    // 3. Chest (Upper Torso - Rounded Capsule with subtle broadness)
     this.chestGroup.position.set(0, 0.32, 0);
     this.torsoGroup.add(this.chestGroup);
 
     const chestData = this.createPartMaterial('torso', 256, 256);
-    const chestGeo = new THREE.CapsuleGeometry(0.26, 0.28, 16, 24);
-    chestGeo.scale(1.15, 1.0, 0.85); // Slightly wider shoulders, rounded front/back
+    const chestGeo = new THREE.CapsuleGeometry(0.25, 0.28, 20, 24);
+    chestGeo.scale(1.14, 1.0, 0.86); // Rounded chest curve
     const chestMesh = new THREE.Mesh(chestGeo, chestData.material);
     chestMesh.position.y = 0.2;
     this.chestGroup.add(chestMesh);
     this.registerPaintableMesh(chestMesh, 'torso', chestData);
 
-    // 4. Neck & Head (Smooth Capsule & Spheres)
+    // 4. Neck & Head (Smooth Capsule & Oval Sphere)
     this.headGroup.position.set(0, 0.44, 0);
     this.chestGroup.add(this.headGroup);
 
     const neckData = this.createPartMaterial('head', 128, 128);
-    const neckGeo = new THREE.CylinderGeometry(0.09, 0.11, 0.14, 20);
+    const neckGeo = new THREE.CapsuleGeometry(0.085, 0.12, 16, 20);
     const neckMesh = new THREE.Mesh(neckGeo, neckData.material);
     neckMesh.position.y = 0.08;
     this.headGroup.add(neckMesh);
@@ -191,23 +202,23 @@ export class PlayerCharacter {
     // Head: Perfectly smooth rounded mannequin head
     const headData = this.createPartMaterial('head', 256, 256);
     const headGeo = new THREE.SphereGeometry(0.25, 32, 28);
-    headGeo.scale(1.0, 1.28, 1.08); // Elegant smooth mannequin egg shape
+    headGeo.scale(1.0, 1.26, 1.06); // Elegant smooth mannequin egg shape
     const headMesh = new THREE.Mesh(headGeo, headData.material);
-    headMesh.position.y = 0.36;
+    headMesh.position.y = 0.35;
     this.headGroup.add(headMesh);
     this.registerPaintableMesh(headMesh, 'head', headData);
 
-    // 5. Left Arm (Shoulder sphere, Upper arm capsule, Forearm capsule, Rounded hand)
+    // 5. Left Arm (Shoulder sphere, Upper arm capsule, Elbow sphere, Forearm capsule, Rounded hand)
     this.leftArmGroup.position.set(0.38, 0.34, 0);
     this.chestGroup.add(this.leftArmGroup);
 
     const lShoulderData = this.createPartMaterial('arms', 128, 128);
-    const lShoulderMesh = new THREE.Mesh(new THREE.SphereGeometry(0.12, 20, 20), lShoulderData.material);
+    const lShoulderMesh = new THREE.Mesh(new THREE.SphereGeometry(0.11, 20, 20), lShoulderData.material);
     this.leftArmGroup.add(lShoulderMesh);
     this.registerPaintableMesh(lShoulderMesh, 'arms', lShoulderData);
 
     const lUpperArmData = this.createPartMaterial('arms', 128, 256);
-    const lUpperArmMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.08, 0.26, 12, 20), lUpperArmData.material);
+    const lUpperArmMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.075, 0.25, 16, 20), lUpperArmData.material);
     lUpperArmMesh.position.y = -0.22;
     this.leftArmGroup.add(lUpperArmMesh);
     this.registerPaintableMesh(lUpperArmMesh, 'arms', lUpperArmData);
@@ -216,21 +227,20 @@ export class PlayerCharacter {
     this.leftArmGroup.add(this.leftForearmGroup);
 
     const lElbowData = this.createPartMaterial('arms', 128, 128);
-    const lElbowMesh = new THREE.Mesh(new THREE.SphereGeometry(0.075, 16, 16), lElbowData.material);
+    const lElbowMesh = new THREE.Mesh(new THREE.SphereGeometry(0.07, 16, 16), lElbowData.material);
     this.leftForearmGroup.add(lElbowMesh);
     this.registerPaintableMesh(lElbowMesh, 'arms', lElbowData);
 
     const lForearmData = this.createPartMaterial('arms', 128, 256);
-    const lForearmMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.07, 0.24, 12, 20), lForearmData.material);
+    const lForearmMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.065, 0.22, 16, 20), lForearmData.material);
     lForearmMesh.position.y = -0.18;
     this.leftForearmGroup.add(lForearmMesh);
     this.registerPaintableMesh(lForearmMesh, 'arms', lForearmData);
 
-    // Hand: Smooth rounded capsule
+    // Hand: Smooth rounded capsule (no sharp box edges!)
     const lHandData = this.createPartMaterial('arms', 128, 128);
-    const lHandMesh = new THREE.Mesh(new THREE.SphereGeometry(0.08, 16, 16), lHandData.material);
-    lHandMesh.scale.set(0.9, 1.2, 0.6);
-    lHandMesh.position.y = -0.38;
+    const lHandMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.065, 0.12, 16, 16), lHandData.material);
+    lHandMesh.position.y = -0.36;
     this.leftForearmGroup.add(lHandMesh);
     this.registerPaintableMesh(lHandMesh, 'arms', lHandData);
 
@@ -239,12 +249,12 @@ export class PlayerCharacter {
     this.chestGroup.add(this.rightArmGroup);
 
     const rShoulderData = this.createPartMaterial('arms', 128, 128);
-    const rShoulderMesh = new THREE.Mesh(new THREE.SphereGeometry(0.12, 20, 20), rShoulderData.material);
+    const rShoulderMesh = new THREE.Mesh(new THREE.SphereGeometry(0.11, 20, 20), rShoulderData.material);
     this.rightArmGroup.add(rShoulderMesh);
     this.registerPaintableMesh(rShoulderMesh, 'arms', rShoulderData);
 
     const rUpperArmData = this.createPartMaterial('arms', 128, 256);
-    const rUpperArmMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.08, 0.26, 12, 20), rUpperArmData.material);
+    const rUpperArmMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.075, 0.25, 16, 20), rUpperArmData.material);
     rUpperArmMesh.position.y = -0.22;
     this.rightArmGroup.add(rUpperArmMesh);
     this.registerPaintableMesh(rUpperArmMesh, 'arms', rUpperArmData);
@@ -253,20 +263,19 @@ export class PlayerCharacter {
     this.rightArmGroup.add(this.rightForearmGroup);
 
     const rElbowData = this.createPartMaterial('arms', 128, 128);
-    const rElbowMesh = new THREE.Mesh(new THREE.SphereGeometry(0.075, 16, 16), rElbowData.material);
+    const rElbowMesh = new THREE.Mesh(new THREE.SphereGeometry(0.07, 16, 16), rElbowData.material);
     this.rightForearmGroup.add(rElbowMesh);
     this.registerPaintableMesh(rElbowMesh, 'arms', rElbowData);
 
     const rForearmData = this.createPartMaterial('arms', 128, 256);
-    const rForearmMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.07, 0.24, 12, 20), rForearmData.material);
+    const rForearmMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.065, 0.22, 16, 20), rForearmData.material);
     rForearmMesh.position.y = -0.18;
     this.rightForearmGroup.add(rForearmMesh);
     this.registerPaintableMesh(rForearmMesh, 'arms', rForearmData);
 
     const rHandData = this.createPartMaterial('arms', 128, 128);
-    const rHandMesh = new THREE.Mesh(new THREE.SphereGeometry(0.08, 16, 16), rHandData.material);
-    rHandMesh.scale.set(0.9, 1.2, 0.6);
-    rHandMesh.position.y = -0.38;
+    const rHandMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.065, 0.12, 16, 16), rHandData.material);
+    rHandMesh.position.y = -0.36;
     this.rightForearmGroup.add(rHandMesh);
     this.registerPaintableMesh(rHandMesh, 'arms', rHandData);
 
@@ -275,12 +284,12 @@ export class PlayerCharacter {
     this.mannequinRoot.add(this.leftLegGroup);
 
     const lHipData = this.createPartMaterial('legs', 128, 128);
-    const lHipMesh = new THREE.Mesh(new THREE.SphereGeometry(0.12, 16, 16), lHipData.material);
+    const lHipMesh = new THREE.Mesh(new THREE.SphereGeometry(0.11, 20, 20), lHipData.material);
     this.leftLegGroup.add(lHipMesh);
     this.registerPaintableMesh(lHipMesh, 'legs', lHipData);
 
     const lThighData = this.createPartMaterial('legs', 128, 256);
-    const lThighMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.1, 0.32, 12, 20), lThighData.material);
+    const lThighMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.09, 0.3, 16, 20), lThighData.material);
     lThighMesh.position.y = -0.24;
     this.leftLegGroup.add(lThighMesh);
     this.registerPaintableMesh(lThighMesh, 'legs', lThighData);
@@ -289,21 +298,21 @@ export class PlayerCharacter {
     this.leftLegGroup.add(this.leftShinGroup);
 
     const lKneeData = this.createPartMaterial('legs', 128, 128);
-    const lKneeMesh = new THREE.Mesh(new THREE.SphereGeometry(0.09, 16, 16), lKneeData.material);
+    const lKneeMesh = new THREE.Mesh(new THREE.SphereGeometry(0.08, 16, 16), lKneeData.material);
     this.leftShinGroup.add(lKneeMesh);
     this.registerPaintableMesh(lKneeMesh, 'legs', lKneeData);
 
     const lShinData = this.createPartMaterial('legs', 128, 256);
-    const lShinMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.085, 0.32, 12, 20), lShinData.material);
+    const lShinMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.075, 0.3, 16, 20), lShinData.material);
     lShinMesh.position.y = -0.22;
     this.leftShinGroup.add(lShinMesh);
     this.registerPaintableMesh(lShinMesh, 'legs', lShinData);
 
-    // Foot: Smooth rounded capsule (no blocky box!)
+    // Foot: Smooth rounded capsule aligned with walking direction (no blocky box!)
     const lFootData = this.createPartMaterial('legs', 128, 128);
-    const lFootMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.075, 0.16, 12, 16), lFootData.material);
+    const lFootMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.065, 0.16, 16, 16), lFootData.material);
     lFootMesh.rotation.x = Math.PI / 2;
-    lFootMesh.position.set(0, -0.44, 0.08);
+    lFootMesh.position.set(0, -0.42, 0.07);
     this.leftShinGroup.add(lFootMesh);
     this.registerPaintableMesh(lFootMesh, 'legs', lFootData);
 
@@ -312,12 +321,12 @@ export class PlayerCharacter {
     this.mannequinRoot.add(this.rightLegGroup);
 
     const rHipData = this.createPartMaterial('legs', 128, 128);
-    const rHipMesh = new THREE.Mesh(new THREE.SphereGeometry(0.12, 16, 16), rHipData.material);
+    const rHipMesh = new THREE.Mesh(new THREE.SphereGeometry(0.11, 20, 20), rHipData.material);
     this.rightLegGroup.add(rHipMesh);
     this.registerPaintableMesh(rHipMesh, 'legs', rHipData);
 
     const rThighData = this.createPartMaterial('legs', 128, 256);
-    const rThighMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.1, 0.32, 12, 20), rThighData.material);
+    const rThighMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.09, 0.3, 16, 20), rThighData.material);
     rThighMesh.position.y = -0.24;
     this.rightLegGroup.add(rThighMesh);
     this.registerPaintableMesh(rThighMesh, 'legs', rThighData);
@@ -326,30 +335,36 @@ export class PlayerCharacter {
     this.rightLegGroup.add(this.rightShinGroup);
 
     const rKneeData = this.createPartMaterial('legs', 128, 128);
-    const rKneeMesh = new THREE.Mesh(new THREE.SphereGeometry(0.09, 16, 16), rKneeData.material);
+    const rKneeMesh = new THREE.Mesh(new THREE.SphereGeometry(0.08, 16, 16), rKneeData.material);
     this.rightShinGroup.add(rKneeMesh);
     this.registerPaintableMesh(rKneeMesh, 'legs', rKneeData);
 
     const rShinData = this.createPartMaterial('legs', 128, 256);
-    const rShinMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.085, 0.32, 12, 20), rShinData.material);
+    const rShinMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.075, 0.3, 16, 20), rShinData.material);
     rShinMesh.position.y = -0.22;
     this.rightShinGroup.add(rShinMesh);
     this.registerPaintableMesh(rShinMesh, 'legs', rShinData);
 
     const rFootData = this.createPartMaterial('legs', 128, 128);
-    const rFootMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.075, 0.16, 12, 16), rFootData.material);
+    const rFootMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.065, 0.16, 16, 16), rFootData.material);
     rFootMesh.rotation.x = Math.PI / 2;
-    rFootMesh.position.set(0, -0.44, 0.08);
+    rFootMesh.position.set(0, -0.42, 0.07);
     this.rightShinGroup.add(rFootMesh);
     this.registerPaintableMesh(rFootMesh, 'legs', rFootData);
   }
 
   /**
-   * EXACT, PRECISE 3D PAINTING:
-   * Paints ONLY on the exact mesh and UV coordinate that was touched!
-   * NO blotches appearing on other body parts!
+   * EXACT, PRECISE 3D DIRECT PAINTING:
+   * Paints ONLY on the exact mesh and UV coordinate touched!
+   * ZERO blotches appearing on other body parts!
    */
-  public paintAtExactUV(mesh: THREE.Mesh, uv: THREE.Vector2, color: string, brushRadius: number = 18) {
+  public paintAtExactUV(
+    mesh: THREE.Mesh,
+    uv: THREE.Vector2,
+    color: string,
+    brushRadius: number = 18,
+    tool: PaintTool = 'brush'
+  ) {
     const partData = this.paintableParts.get(mesh);
     if (!partData) return;
 
@@ -357,25 +372,50 @@ export class PlayerCharacter {
     const w = partData.canvas.width;
     const h = partData.canvas.height;
 
-    // Save snapshot for undo
+    // Save snapshot for undo (limit to 30 history states)
     this.historyStack.push({
       part: mesh,
       data: ctx.getImageData(0, 0, w, h),
     });
-    if (this.historyStack.length > 25) this.historyStack.shift();
+    if (this.historyStack.length > 30) this.historyStack.shift();
+
+    if (tool === 'bucket') {
+      // Paint bucket fills this clicked part completely
+      ctx.fillStyle = color;
+      ctx.fillRect(0, 0, w, h);
+      partData.texture.needsUpdate = true;
+      soundEngine.playSpray();
+      return;
+    }
+
+    const drawColor = tool === 'eraser' ? '#f8fafc' : color;
 
     // Map UV (0..1) to canvas coordinates
     const cx = uv.x * w;
     const cy = (1 - uv.y) * h;
 
     ctx.save();
-    ctx.fillStyle = color;
 
-    // Smooth soft-edged brush circular dab
+    // If continuing stroke on the same mesh, draw an interpolated line to prevent dotted gaps
+    if (this.lastPaintedMesh === mesh && this.lastPaintedUV) {
+      const px = this.lastPaintedUV.x * w;
+      const py = (1 - this.lastPaintedUV.y) * h;
+
+      ctx.strokeStyle = drawColor;
+      ctx.lineWidth = brushRadius * 1.8;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      ctx.lineTo(cx, cy);
+      ctx.stroke();
+    }
+
+    // Soft-edged circular dab
     const radGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, brushRadius);
-    radGrad.addColorStop(0, color);
-    radGrad.addColorStop(0.7, color);
-    radGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    radGrad.addColorStop(0, drawColor);
+    radGrad.addColorStop(0.75, drawColor);
+    radGrad.addColorStop(1, 'rgba(248, 250, 252, 0)');
 
     ctx.fillStyle = radGrad;
     ctx.beginPath();
@@ -384,27 +424,38 @@ export class PlayerCharacter {
 
     ctx.restore();
     partData.texture.needsUpdate = true;
-    soundEngine.playSpray();
+
+    this.lastPaintedMesh = mesh;
+    this.lastPaintedUV = uv.clone();
+
+    if (Math.random() < 0.3) {
+      soundEngine.playSpray();
+    }
+  }
+
+  public endPaintStroke() {
+    this.lastPaintedMesh = null;
+    this.lastPaintedUV = null;
   }
 
   /**
    * Fill the entire character in a solid chosen color
    */
-  public fillAllParts(color: string) {
+  public fillAllParts(color: string, playSound: boolean = true) {
     this.paintableParts.forEach(p => {
       p.ctx.fillStyle = color;
       p.ctx.fillRect(0, 0, p.canvas.width, p.canvas.height);
       p.texture.needsUpdate = true;
     });
-    soundEngine.playSpray();
+    if (playSound) soundEngine.playSpray();
   }
 
   /**
-   * Fill a specific body part (Head, Torso, Arms, or Legs)
+   * Fill a specific body part category (Head, Torso, Arms, or Legs)
    */
   public fillSpecificPart(targetPart: BodyPart, color: string) {
     this.paintableParts.forEach(p => {
-      if (p.part === targetPart) {
+      if (p.part === targetPart || targetPart === 'all') {
         p.ctx.fillStyle = color;
         p.ctx.fillRect(0, 0, p.canvas.width, p.canvas.height);
         p.texture.needsUpdate = true;
@@ -446,7 +497,7 @@ export class PlayerCharacter {
       this.velocity.set(0, 0, 0);
       this.isMoving = false;
       this.applyPose(this.currentPose);
-      (this.freezeRingMesh.material as THREE.MeshBasicMaterial).opacity = 0.75;
+      (this.freezeRingMesh.material as THREE.MeshBasicMaterial).opacity = 0.8;
     } else {
       (this.freezeRingMesh.material as THREE.MeshBasicMaterial).opacity = 0;
       this.resetPoseToStanding();
